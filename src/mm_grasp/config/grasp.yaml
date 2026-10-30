@@ -1,0 +1,70 @@
+# ros2 run mm_grasp grasp_server --ros-args --params-file <this file>
+mm_grasp:
+  ros__parameters:
+    dry_run: true # true: plan + RViz only, nothing moves
+    base_dofs: "" # "" | "x" | "x,y" | "x,y,theta" | ...
+    base_frame: base_link
+    ee_frame: grasp_center_link
+
+    fjt_action: /follow_joint_trajectory
+    driver_joint:
+      lift_joint: lift_joint
+      arm_joint: arm_joint
+      wrist_yaw_joint: wrist_yaw_joint
+      wrist_pitch_joint: wrist_pitch_joint
+      wrist_roll_joint: wrist_roll_joint
+
+
+    start_pose:
+      lift_joint: 0.45
+      arm_joint: 0.05
+      wrist_yaw_joint: 0.0
+      wrist_pitch_joint: 0.0
+      wrist_roll_joint: 0.0
+
+    grasp_wrist:
+      wrist_yaw_joint: 0.0
+      wrist_pitch_joint: 0.0
+      wrist_roll_joint: 0.0
+
+
+    no_split_action_timeout: 10.0
+    max_step:
+      lift_joint: 0.2
+      arm_joint: 0.15
+      wrist_yaw_joint: 0.8
+      wrist_pitch_joint: 0.8
+      wrist_roll_joint: 0.8
+
+    pregrasp_distance: 0.10
+
+    n_waypoints: 2 # stretch_driver stops at every point; arm-only approach is straight
+    lift_height: 0.10
+    free_yaw: true
+    max_aim_yaw_deg: 10.0 # ~5 cm sideways; anything further is left to the base
+    base_stage_arm: 0.35
+
+    max_base_translation: 0.6 # m, per axis
+    max_base_rotation_deg: 45.0
+
+    base_max_linear: 0.05 # m/s, /cmd_vel closed loop on /wheel_odom
+    base_max_angular: 0.2 # rad/s
+
+    ik_accept_position_error: 0.015
+    ik_accept_orientation_error_deg: 3.0
+
+    settle_time: 0.3 # s to wait after the arm stops, before detecting
+    service_timeout: 5.0
+
+    use_gripper: false # TODO[lnfu] gripper mechanism being repaired
+    gripper_max_opening: 0.10 # TODO[lnfu] measure
+    closed_threshold: 0.0 # TODO[lnfu] from the empty vs holding test
+
+    detect_service: /mm_perception/detect
+    color_topic: /cameras_gripper/right/image_raw/compressed
+    depth_topic: /cameras_gripper/stereo/image_raw/compressedDepth
+    depth_compressed: true
+    camera_info_topic: /cameras_gripper/right/camera_info
+    sync_slop: 0.02 # s, max stamp difference within a color/depth/info triple
+    snapshot_timeout: 2.0
+    depth_band: 0.05 # m, drop mask pixels this far from the median depth
