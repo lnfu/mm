@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mm_ik</name>
+  <version>0.0.0</version>
+  <description>Pink/Pinocchio IK library for Stretch 4 (no ROS nodes).</description>
+  <maintainer email="efliao@cs.nycu.edu.tw">efliao</maintainer>
+  <license>TODO</license>
+
+  <!-- pinocchio / pin-pink are installed with uv into .venv, see PLAN.md -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
