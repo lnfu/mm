@@ -1,0 +1,8 @@
+string prompt
+sensor_msgs/CompressedImage image
+---
+bool success
+string message
+
+# Sorted by score, highest first, all >= min_score.
+Detection[] detections

@@ -1,0 +1,18 @@
+uint8 MODE_PROMPT=0   # detect `prompt` with the gripper camera
+uint8 MODE_POINT=1    # grasp at `target_point` (no camera, e.g. for testing)
+uint8 mode
+
+string prompt                              # MODE_PROMPT
+geometry_msgs/PointStamped target_point    # MODE_POINT: object center (grasp_center_link goal)
+---
+bool success
+string message
+geometry_msgs/PointStamped grasped_point
+---
+uint8 MOVING_TO_START=0
+uint8 DETECTING=1
+uint8 APPROACHING=2
+uint8 GRASPING=3
+uint8 LIFTING=4
+
+uint8 phase
