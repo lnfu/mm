@@ -6,7 +6,7 @@ import pytest
 
 stretch4_urdf = pytest.importorskip('stretch4_urdf')
 
-from mm_ik.solver import IKSolver  # noqa: E402
+from mm_ik.solver import ARM_JOINT_NAMES, IKSolver  # noqa: E402
 
 START = {
     'lift_joint': 0.6,
@@ -23,10 +23,10 @@ def urdf_xml():
 
 
 def random_joints(solver, rng):
-    lo, hi = solver.model.lowerPositionLimit, solver.model.upperPositionLimit
-    # Stay away from limits and from wrist singularities.
-    q = lo + (hi - lo) * rng.uniform(0.2, 0.8, size=lo.shape)
-    joints = solver.to_joints(q)
+    lo = solver.to_joints(solver.model.lowerPositionLimit)
+    hi = solver.to_joints(solver.model.upperPositionLimit)
+    # Stay away from limits and from wrist singularities. The base has no limits.
+    joints = {n: lo[n] + (hi[n] - lo[n]) * rng.uniform(0.2, 0.8) for n in ARM_JOINT_NAMES}
     for wrist in ('wrist_yaw_joint', 'wrist_pitch_joint', 'wrist_roll_joint'):
         joints[wrist] = rng.uniform(-0.6, 0.6)
     for base in ('base_x', 'base_y', 'base_theta'):
@@ -35,7 +35,7 @@ def random_joints(solver, rng):
     return joints
 
 
-@pytest.mark.parametrize('base_dofs', [(), ('x',), ('x', 'y', 'theta')])
+@pytest.mark.parametrize('base_dofs', [(), ('x', 'y', 'theta')])
 def test_round_trip(urdf_xml, base_dofs):
     solver = IKSolver(urdf_xml, base_dofs=base_dofs)
     rng = np.random.default_rng(0)
@@ -58,18 +58,18 @@ def test_locked_base_does_not_move(urdf_xml):
 
 
 def test_base_helps_reach_beyond_arm(urdf_xml):
-    """A target 30 cm past full arm extension needs base_x."""
+    """A target 30 cm past full arm extension needs the base."""
     far = IKSolver(urdf_xml, base_dofs=()).fk({**START, 'arm_joint': 0.52})
     far.translation[0] += 0.3
 
     assert not IKSolver(urdf_xml, base_dofs=()).solve(START, far).converged
-    result = IKSolver(urdf_xml, base_dofs=('x',)).solve(START, far)
+    result = IKSolver(urdf_xml, base_dofs=('x', 'y', 'theta')).solve(START, far)
     assert result.converged
     assert result.joints['base_x'] > 0.25
 
 
 def test_solve_path_straight_line(urdf_xml):
-    solver = IKSolver(urdf_xml, base_dofs=('x',))
+    solver = IKSolver(urdf_xml, base_dofs=('x', 'y', 'theta'))
     goal = solver.fk({**START, 'arm_joint': 0.4})
     pre = pin.SE3(goal.rotation, goal.translation - goal.rotation[:, 0] * 0.1)
     line = [pin.SE3(goal.rotation, pre.translation + s * (goal.translation - pre.translation))
@@ -126,17 +126,25 @@ def test_base_does_the_travelling_with_comfort_posture(urdf_xml):
 def test_base_stage_settles_on_posture_not_first_reach(urdf_xml):
     """A 23 cm sideways gap: the base covers it, not the wrist yaw, even though the
     per-iteration velocity limit lets yaw reach the target first."""
-    solver = IKSolver(urdf_xml, base_dofs=('x', 'y'), orientation_cost=(0.5, 0.5, 0.0),
+    solver = IKSolver(urdf_xml, base_dofs=('x', 'y', 'theta'), orientation_cost=(0.5, 0.5, 0.0),
                       joint_limits={'wrist_yaw_joint': (-0.17, 0.17)},
-                      posture_cost=1e-2, posture_costs={'base_x': 1e-4, 'base_y': 1e-4})
+                      posture_cost=1e-2, posture_costs={'base_x': 1e-4, 'base_y': 1e-4, 'base_theta': 1e-1})
     target = IKSolver(urdf_xml, base_dofs=()).fk({**START, 'arm_joint': 0.35})
     target.translation[1] += 0.23
     j = solver.solve(START, target, posture={'arm_joint': 0.35, 'wrist_yaw_joint': 0.0}).joints
     assert j['base_y'] == pytest.approx(0.23, abs=0.01)
-    assert abs(j['wrist_yaw_joint']) < np.deg2rad(1)
+    assert abs(j['base_theta']) < np.deg2rad(1) and abs(j['wrist_yaw_joint']) < np.deg2rad(1)
     assert j['arm_joint'] == pytest.approx(0.35, abs=0.02)
 
 
-def test_unknown_base_dof(urdf_xml):
+@pytest.mark.parametrize('base_dofs', [('z',), ('x',), ('x', 'y')])
+def test_planar_base_is_all_or_nothing(urdf_xml, base_dofs):
     with pytest.raises(ValueError):
-        IKSolver(urdf_xml, base_dofs=('z',))
+        IKSolver(urdf_xml, base_dofs=base_dofs)
+
+
+def test_base_theta_wraps(urdf_xml):
+    """theta is stored as (cos, sin), so it comes back in (-pi, pi]."""
+    solver = IKSolver(urdf_xml, base_dofs=('x', 'y', 'theta'))
+    joints = solver.to_joints(solver.to_q({**START, 'base_theta': 3.5}))
+    assert joints['base_theta'] == pytest.approx(3.5 - 2 * np.pi)

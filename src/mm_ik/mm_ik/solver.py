@@ -1,7 +1,7 @@
 """Offline differential IK with pink.
 
 Targets are poses of `ee_frame` expressed in `base_link` at the moment of solving.
-The virtual base joints always start at 0, so the returned base values are the
+The planar base always starts at the origin, so the returned base values are the
 relative motion (dx, dy, dtheta) the base must make before the arm moves.
 """
 
@@ -12,17 +12,15 @@ import pink
 import pinocchio as pin
 from pink.tasks import FrameTask, PostureTask
 
-from .model import ARM_JOINTS, BASE_JOINTS, MERGED_ARM, build_model
+from .model import ARM_JOINTS, BASE_JOINT, MERGED_ARM, build_model
 
 # Names used outside this package.
 # The merged arm is `arm_joint`.
-PUBLIC_NAMES = {
-    MERGED_ARM: "arm_joint",
-    BASE_JOINTS["x"]: "base_x",
-    BASE_JOINTS["y"]: "base_y",
-    BASE_JOINTS["theta"]: "base_theta",
-}
+PUBLIC_NAMES = {MERGED_ARM: "arm_joint"}
 ARM_JOINT_NAMES = [PUBLIC_NAMES.get(n, n) for n in ARM_JOINTS]
+BASE_NAMES = ["base_x", "base_y", "base_theta"]
+# Planar base at the start of motion: (x, y, cos(theta), sin(theta)).
+_BASE_ZERO = np.array([0.0, 0.0, 1.0, 0.0])
 
 
 @dataclass
@@ -74,46 +72,58 @@ class IKSolver:
         self._frame_task = FrameTask(
             ee_frame, position_cost=position_cost, orientation_cost=costs.copy()
         )
-        self._name_to_public = {n: PUBLIC_NAMES.get(n, n) for n in self.model.names[1:]}
-        self._public_to_name = {v: k for k, v in self._name_to_public.items()}
+        # Arm joints are 1-dof: one q and one v index each. The planar base takes
+        # q[i:i+4] = (x, y, cos, sin) and v[j:j+3] = (vx, vy, wz).
+        self._arm_q = {}
+        self._v_index = {}
+        for name in ARM_JOINTS:
+            jid = self.model.getJointId(name)
+            self._arm_q[PUBLIC_NAMES.get(name, name)] = self.model.idx_qs[jid]
+            self._v_index[PUBLIC_NAMES.get(name, name)] = self.model.idx_vs[jid]
+        self._base_q = None
+        if self.model.existJointName(BASE_JOINT):
+            jid = self.model.getJointId(BASE_JOINT)
+            self._base_q = self.model.idx_qs[jid]
+            for k, public in enumerate(BASE_NAMES):
+                self._v_index[public] = self.model.idx_vs[jid] + k
 
         cost = np.full(self.model.nv, posture_cost)
         for public, c in (posture_costs or {}).items():
-            if public in self._public_to_name:
-                cost[
-                    self.model.idx_vs[
-                        self.model.getJointId(self._public_to_name[public])
-                    ]
-                ] = c
+            if public in self._v_index:
+                cost[self._v_index[public]] = c
         self._posture_task = PostureTask(cost=cost)
 
     @property
     def joint_names(self):
-        """Public names of the free joints, in model order."""
-        return list(self._name_to_public.values())
+        """Public names of the free joints."""
+        return list(self._v_index)
 
     def to_q(self, joints: dict) -> np.ndarray:
         """Joint dict -> configuration. Base joints default to 0; arm joints are required."""
         q = pin.neutral(self.model)
-        for name, public in self._name_to_public.items():
-            if public in joints:
-                q[self.model.idx_qs[self.model.getJointId(name)]] = joints[public]
-            elif not name.startswith("base_"):
+        for public, i in self._arm_q.items():
+            if public not in joints:
                 raise KeyError(f"missing joint {public}")
+            q[i] = joints[public]
+        if self._base_q is not None:
+            x, y, theta = (joints.get(public, 0.0) for public in BASE_NAMES)
+            q[self._base_q : self._base_q + 4] = x, y, np.cos(theta), np.sin(theta)
         return q
 
     def to_joints(self, q: np.ndarray) -> dict:
-        return {
-            public: float(q[self.model.idx_qs[self.model.getJointId(name)]])
-            for name, public in self._name_to_public.items()
-        }
+        joints = {public: float(q[i]) for public, i in self._arm_q.items()}
+        if self._base_q is not None:
+            x, y, c, s = q[self._base_q : self._base_q + 4]
+            joints.update(
+                base_x=float(x), base_y=float(y), base_theta=float(np.arctan2(s, c))
+            )
+        return joints
 
     def _base_to_world(self, q_start: np.ndarray) -> pin.SE3:
         """Pose of base_link in the IK world, with base joints at 0 (start of motion)."""
         q0 = q_start.copy()
-        for name in BASE_JOINTS.values():
-            if self.model.existJointName(name):
-                q0[self.model.idx_qs[self.model.getJointId(name)]] = 0.0
+        if self._base_q is not None:
+            q0[self._base_q : self._base_q + 4] = _BASE_ZERO
         pin.framesForwardKinematics(self.model, self.data, q0)
         return self.data.oMf[self.model.getFrameId(self.base_frame)].copy()
 
