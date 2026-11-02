@@ -2,6 +2,7 @@ import math
 from types import SimpleNamespace as NS
 
 import pytest
+
 from mm_grasp.base_control import (
     BaseGains,
     Pose2D,

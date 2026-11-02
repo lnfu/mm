@@ -5,13 +5,14 @@ import time
 
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import Twist
-from mm_ik.model import ARM_SEGMENTS
-from mm_ik.solver import ARM_JOINT_NAMES
 from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
+
+from mm_ik.model import ARM_SEGMENTS
+from mm_ik.solver import ARM_JOINT_NAMES
 
 from .base_control import (
     BaseGains,

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pinocchio as pin
+
 from mm_ik.solver import ARM_JOINT_NAMES, IKSolver
 
 from .localize import center_and_width

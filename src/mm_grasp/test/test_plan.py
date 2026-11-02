@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from mm_grasp.plan import (
     FREE_YAW_ORIENTATION_COST,
     PlanningError,

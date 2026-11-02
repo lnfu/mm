@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+
 from mm_perception.detections import encode_mask_png, parse_prompt, to_detections
 
 

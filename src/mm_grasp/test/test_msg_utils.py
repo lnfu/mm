@@ -2,6 +2,7 @@ from types import SimpleNamespace as NS
 
 import numpy as np
 import pytest
+
 from mm_grasp.msg_utils import (
     decode_mask_png,
     depth_to_array,

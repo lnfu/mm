@@ -34,7 +34,9 @@ def _add_virtual_base(urdf_xml: str) -> str:
     robot = ET.fromstring(urdf_xml)
     children = {j.find("child").get("link") for j in robot.findall("joint")}
     roots = [
-        l.get("name") for l in robot.findall("link") if l.get("name") not in children
+        link.get("name")
+        for link in robot.findall("link")
+        if link.get("name") not in children
     ]
     if len(roots) != 1:
         raise ValueError(f"expected one root link, found {roots}")

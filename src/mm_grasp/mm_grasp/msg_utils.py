@@ -2,6 +2,7 @@
 
 import cv2
 import numpy as np
+
 from mm_ik.model import ARM_SEGMENTS
 
 _DEPTH_DTYPES = {"16UC1": np.uint16, "mono16": np.uint16, "32FC1": np.float32}

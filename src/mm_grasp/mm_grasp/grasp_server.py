@@ -18,7 +18,6 @@ import numpy as np
 import pinocchio as pin
 import rclpy
 from geometry_msgs.msg import PointStamped
-from mm_ik.solver import ARM_JOINT_NAMES
 from rcl_interfaces.srv import GetParameters
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -26,6 +25,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
+from mm_ik.solver import ARM_JOINT_NAMES
 from mm_interfaces.action import Grasp
 from mm_interfaces.srv import Detect
 
@@ -205,7 +205,9 @@ class GraspServer(Node):
     def _run(self, goal_handle):
         goal = goal_handle.request
         dry_run = self._param("dry_run")
-        cancel = lambda: goal_handle.is_cancel_requested
+
+        def cancel():
+            return goal_handle.is_cancel_requested
 
         def phase(p):
             if cancel():
