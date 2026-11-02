@@ -25,15 +25,14 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
-from mm_ik.solver import ARM_JOINT_NAMES
 from mm_interfaces.action import Grasp
 from mm_interfaces.srv import Detect
 
 from .base_control import BaseGains
+from .config import GraspConfig
 from .localize import center_and_width, mask_points, transform_points
 from .msg_utils import decode_mask_png, depth_to_array, urdf_joint_positions
 from .plan import (
-    DEFAULT_MAX_STEP,
     PlanningError,
     fixed_grasp_rotation,
     make_solvers,
@@ -45,8 +44,6 @@ from .robot import Canceled, MotionError, Robot
 from .scene import Scene, SceneError
 from .snapshot import SnapshotError, take_snapshot
 
-WRIST_JOINTS = ["wrist_yaw_joint", "wrist_pitch_joint", "wrist_roll_joint"]
-
 
 class GraspFailed(RuntimeError):
     pass
@@ -55,77 +52,21 @@ class GraspFailed(RuntimeError):
 class GraspServer(Node):
     def __init__(self):
         super().__init__("mm_grasp")
-        p = self.declare_parameter
-        p("dry_run", True)
-        p("base_dofs", "")  # comma separated subset of x,y,theta
-        p("base_frame", "base_link")
-        p("ee_frame", "grasp_center_link")
-        p("fjt_action", "/follow_joint_trajectory")  # served by /stretch_driver
-        for name in ARM_JOINT_NAMES:
-            p(f"driver_joint.{name}", name)  # the driver uses the same names
-            p(f"start_pose.{name}", 0.0)
-            p(f"max_step.{name}", DEFAULT_MAX_STEP[name])
-        for name in WRIST_JOINTS:
-            p(f"grasp_wrist.{name}", 0.0)
-        p("pregrasp_distance", 0.10)
-        p(
-            "n_waypoints", 2
-        )  # stretch_driver stops at every point; arm-only approach is already straight
-        p("lift_height", 0.10)
-        # Let wrist yaw aim at objects off the gripper's line (base locked), keeping the
-        # gripper level. The approach is still straight along base x.
-        p("free_yaw", True)
-        p(
-            "max_aim_yaw_deg", 10.0
-        )  # ~5 cm sideways; anything further is left to the base
-        # The base is only used when the arm alone cannot reach (base_dofs not empty).
-        # Then it moves so the arm ends near base_stage_arm at the pre-grasp, leaving
-        # room for the approach (0.52 max - pregrasp_distance - margin).
-        p("base_stage_arm", 0.35)
-        p("max_base_translation", 0.6)  # m, per axis
-        p("max_base_rotation_deg", 45.0)
-        p("base_max_linear", 0.05)  # m/s
-        p("base_max_angular", 0.2)  # rad/s
-        # After each base move the object is detected again and the grasp replanned,
-        # with the base allowed again: a first look near the image edge can be far off.
-        p("max_base_moves", 3)
-        # A target slightly off the gripper's line (base locked) never converges exactly.
-        p("ik_accept_position_error", 0.015)  # m
-        p("ik_accept_orientation_error_deg", 3.0)
-        # If stretch_driver's action_timeout is at least this long, long moves are not
-        # split into max_step pieces (fewer stops).
-        p("no_split_action_timeout", 10.0)
-        p("settle_time", 0.3)
-        p("service_timeout", 5.0)
-        # TODO[lnfu] the gripper mechanism is broken; open/close/check are skipped
-        # while use_gripper is false and the arm motions still run.
-        p("use_gripper", False)
-        p("gripper_max_opening", 0.10)  # TODO[lnfu] measure
-        p("closed_threshold", 0.0)  # TODO[lnfu] from the empty vs holding test
-        p("detect_service", "/mm_perception/detect")
-        # The driver aligns depth to the right camera (setDepthAlign(right)) and
-        # publishes it only as compressedDepth, so the color image is the right one.
-        p("color_topic", "/cameras_gripper/right/image_raw/compressed")
-        p("depth_topic", "/cameras_gripper/stereo/image_raw/compressedDepth")
-        p("depth_compressed", True)
-        p("camera_info_topic", "/cameras_gripper/right/camera_info")
-        p("sync_slop", 0.02)
-        p("snapshot_timeout", 2.0)
-        p("depth_band", 0.05)
+        GraspConfig.declare(self)
+        cfg = GraspConfig.from_node(self)
 
         group = ReentrantCallbackGroup()
-        driver_names = {n: self._param(f"driver_joint.{n}") for n in ARM_JOINT_NAMES}
         self._robot = Robot(
-            self, self._param("fjt_action"), driver_names, callback_group=group
+            self, cfg.fjt_action, cfg.driver_joint, callback_group=group
         )
-        self._scene = Scene(self, base_frame=self._param("base_frame"))
+        self._scene = Scene(self, base_frame=cfg.base_frame)
         self._group = group
         self._driver_params = self.create_client(
             GetParameters, "/stretch_driver/get_parameters", callback_group=group
         )
         self._split_moves = True
         self._detect_srv = self.create_client(
-            Detect, self._param("detect_service"), callback_group=group
+            Detect, cfg.detect_service, callback_group=group
         )
         self._ghost_pub = self.create_publisher(JointState, "~/ghost_joint_states", 1)
 
@@ -140,13 +81,7 @@ class GraspServer(Node):
             cancel_callback=lambda _: CancelResponse.ACCEPT,
             callback_group=group,
         )
-        self.get_logger().info(f"READY (dry_run={self._param('dry_run')})")
-
-    def _param(self, name):
-        return self.get_parameter(name).value
-
-    def _joint_params(self, prefix, names=ARM_JOINT_NAMES):
-        return {n: float(self._param(f"{prefix}.{n}")) for n in names}
+        self.get_logger().info(f"READY (dry_run={cfg.dry_run})")
 
     # ---- action plumbing ----
 
@@ -166,12 +101,13 @@ class GraspServer(Node):
 
     def _execute(self, goal_handle):
         result = Grasp.Result()
+        cfg = GraspConfig.from_node(self)
         try:
-            point = self._run(goal_handle)
+            point = self._run(goal_handle, cfg)
             result.success = True
-            if self._param("dry_run"):
+            if cfg.dry_run:
                 result.message = "dry_run: plan ok"
-            elif self._param("use_gripper"):
+            elif cfg.use_gripper:
                 result.message = "grasped"
             else:
                 result.message = "motion done (use_gripper is false, gripper not used)"
@@ -205,9 +141,9 @@ class GraspServer(Node):
 
     # ---- grasping ----
 
-    def _run(self, goal_handle):
+    def _run(self, goal_handle, cfg):
         goal = goal_handle.request
-        dry_run = self._param("dry_run")
+        dry_run = cfg.dry_run
 
         def cancel():
             return goal_handle.is_cancel_requested
@@ -217,42 +153,42 @@ class GraspServer(Node):
                 raise Canceled()
             goal_handle.publish_feedback(Grasp.Feedback(phase=p))
 
-        arm_solver, base_solver = self._solvers()
-        self._split_moves = self._driver_needs_split(cancel)
-        start_pose = self._joint_params("start_pose")
+        arm_solver, base_solver = self._solvers(cfg)
+        self._split_moves = self._driver_needs_split(cfg, cancel)
+        start_pose = cfg.start_pose
 
         # pre-grasp pose
         phase(Grasp.Feedback.MOVING_TO_START)
         if dry_run:
             current = start_pose
         else:
-            self._move(self._robot.arm_joints(), [start_pose], cancel)
-            self._sleep(self._param("settle_time"), cancel)
+            self._move(cfg, self._robot.arm_joints(), [start_pose], cancel)
+            self._sleep(cfg.settle_time, cancel)
             current = self._robot.arm_joints()
 
         # detect (& project to 3D)
         phase(Grasp.Feedback.DETECTING)
-        grasp_wrist = self._joint_params("grasp_wrist", WRIST_JOINTS)
+        grasp_wrist = cfg.grasp_wrist
         rotation = fixed_grasp_rotation(arm_solver, grasp_wrist)
         if goal.mode == Grasp.Goal.MODE_POINT:
             center = self._scene.to_base(
                 goal.target_point.header, goal.target_point.point
             )
-            self._show_target(center)
+            self._show_target(cfg, center)
         else:
-            center = self._detect_target(goal.prompt, rotation, cancel)
+            center = self._detect_target(cfg, goal.prompt, rotation, cancel)
 
         # planning: the arm alone if it can, else the base moves first
-        plan = self._plan(arm_solver, base_solver, current, center, grasp_wrist)
+        plan = self._plan(cfg, arm_solver, base_solver, current, center, grasp_wrist)
         if dry_run:
             self._show_ghost([plan.pregrasp] + plan.approach + [plan.lift], cancel)
-            return self._grasped_point(center)
+            return self._grasped_point(cfg, center)
 
         # approach
         phase(Grasp.Feedback.APPROACHING)
         base_moves = 0
         while any(abs(v) > 1e-3 for v in plan.base.values()):
-            if base_moves == self._param("max_base_moves"):
+            if base_moves == cfg.max_base_moves:
                 raise GraspFailed(
                     f"still out of arm reach after {base_moves} base moves"
                 )
@@ -262,13 +198,13 @@ class GraspServer(Node):
                 plan.base.get("base_theta", 0.0),
                 cancel,
                 BaseGains(
-                    max_linear=self._param("base_max_linear"),
-                    max_angular=self._param("base_max_angular"),
+                    max_linear=cfg.base_max_linear,
+                    max_angular=cfg.base_max_angular,
                 ),
             )
             base_moves += 1
             # TODO[lnfu]
-            self._sleep(self._param("settle_time"), cancel)
+            self._sleep(cfg.settle_time, cancel)
             current = self._robot.arm_joints()
             phase(Grasp.Feedback.DETECTING)
             if (
@@ -276,47 +212,47 @@ class GraspServer(Node):
             ):  # no camera: trust the planned base motion
                 moved = base_solver.base_motion({**plan.pregrasp, **plan.base})
                 center = moved.actInv(pin.SE3(np.eye(3), center)).translation
-                self._show_target(center)
+                self._show_target(cfg, center)
             else:
-                center = self._detect_target(goal.prompt, rotation, cancel)
-            plan = self._plan(arm_solver, base_solver, current, center, grasp_wrist)
+                center = self._detect_target(cfg, goal.prompt, rotation, cancel)
+            plan = self._plan(
+                cfg, arm_solver, base_solver, current, center, grasp_wrist
+            )
             phase(Grasp.Feedback.APPROACHING)
 
-        if self._param("use_gripper"):
+        if cfg.use_gripper:
             self._robot.open_gripper(cancel)
         else:
             self.get_logger().warn("use_gripper is false: not opening the gripper")
 
-        self._move(current, [plan.pregrasp] + plan.approach, cancel)
+        self._move(cfg, current, [plan.pregrasp] + plan.approach, cancel)
 
         # close gripper
         phase(Grasp.Feedback.GRASPING)
-        if self._param("use_gripper"):
+        if cfg.use_gripper:
             self._robot.close_gripper(cancel)
             # TODO[lnfu] check the direction once the gripper range is known.
-            if self._robot.gripper_position() <= self._param("closed_threshold"):
+            if self._robot.gripper_position() <= cfg.closed_threshold:
                 raise GraspFailed("gripper closed completely: nothing grasped")
         else:
             self.get_logger().warn("use_gripper is false: not closing the gripper")
 
         # lift
         phase(Grasp.Feedback.LIFTING)
-        self._move(plan.approach[-1], [plan.lift], cancel)
-        return self._grasped_point(center)
+        self._move(cfg, plan.approach[-1], [plan.lift], cancel)
+        return self._grasped_point(cfg, center)
 
-    def _detect_target(self, prompt, rotation, cancel):
-        center = self._detect(prompt, rotation, cancel)
-        self._show_target(center)
+    def _detect_target(self, cfg, prompt, rotation, cancel):
+        center = self._detect(cfg, prompt, rotation, cancel)
+        self._show_target(cfg, center)
         return center
 
-    def _show_target(self, center):
+    def _show_target(self, cfg, center):
         # Shown before planning, so it is visible even if IK fails.
         self._scene.publish_markers(center)
-        self.get_logger().info(
-            f"target in {self._param('base_frame')}: {center.round(3)}"
-        )
+        self.get_logger().info(f"target in {cfg.base_frame}: {center.round(3)}")
 
-    def _plan(self, arm_solver, base_solver, current, center, grasp_wrist):
+    def _plan(self, cfg, arm_solver, base_solver, current, center, grasp_wrist):
         """plan_grasp with the configured parameters; base_solver None locks the base."""
         rotation = fixed_grasp_rotation(arm_solver, grasp_wrist)
         plan = plan_grasp(
@@ -324,16 +260,14 @@ class GraspServer(Node):
             current,
             center,
             rotation,
-            pregrasp_distance=self._param("pregrasp_distance"),
-            n_waypoints=self._param("n_waypoints"),
-            lift_height=self._param("lift_height"),
-            accept_position_error=self._param("ik_accept_position_error"),
-            accept_orientation_error=np.deg2rad(
-                self._param("ik_accept_orientation_error_deg")
-            ),
+            pregrasp_distance=cfg.pregrasp_distance,
+            n_waypoints=cfg.n_waypoints,
+            lift_height=cfg.lift_height,
+            accept_position_error=cfg.ik_accept_position_error,
+            accept_orientation_error=np.deg2rad(cfg.ik_accept_orientation_error_deg),
             base_solver=base_solver,
             base_posture={
-                "arm_joint": self._param("base_stage_arm"),
+                "arm_joint": cfg.base_stage_arm,
                 "wrist_yaw_joint": grasp_wrist["wrist_yaw_joint"],
             },
         )
@@ -345,37 +279,34 @@ class GraspServer(Node):
         )
         return plan
 
-    def _grasped_point(self, center):
+    def _grasped_point(self, cfg, center):
         """center as a PointStamped in the (current) base frame."""
         grasped = PointStamped()
-        grasped.header.frame_id = self._param("base_frame")
+        grasped.header.frame_id = cfg.base_frame
         grasped.header.stamp = self.get_clock().now().to_msg()
         grasped.point.x, grasped.point.y, grasped.point.z = (float(v) for v in center)
         return grasped
 
-    def _solvers(self):
+    def _solvers(self, cfg):
         urdf = self._robot.urdf
         if urdf is None:
             raise GraspFailed("no /robot_description received yet")
-        base_dofs = [
-            d.strip() for d in self._param("base_dofs").split(",") if d.strip()
-        ]
         try:
             return make_solvers(
                 urdf,
-                base_dofs,
-                free_yaw=self._param("free_yaw"),
-                grasp_yaw=self._param("grasp_wrist.wrist_yaw_joint"),
-                max_aim_yaw=np.deg2rad(self._param("max_aim_yaw_deg")),
-                max_base_translation=self._param("max_base_translation"),
-                max_base_rotation=np.deg2rad(self._param("max_base_rotation_deg")),
-                ee_frame=self._param("ee_frame"),
-                base_frame=self._param("base_frame"),
+                cfg.base_dof_list,
+                free_yaw=cfg.free_yaw,
+                grasp_yaw=cfg.grasp_wrist["wrist_yaw_joint"],
+                max_aim_yaw=np.deg2rad(cfg.max_aim_yaw_deg),
+                max_base_translation=cfg.max_base_translation,
+                max_base_rotation=np.deg2rad(cfg.max_base_rotation_deg),
+                ee_frame=cfg.ee_frame,
+                base_frame=cfg.base_frame,
             )
         except ValueError as e:
             raise GraspFailed(f"cannot build IK model: {e}") from e
 
-    def _driver_needs_split(self, cancel):
+    def _driver_needs_split(self, cfg, cancel):
         """Whether long moves must be cut up: stretch_driver gives each trajectory point
         action_timeout seconds (3 by default). With a long timeout, e.g. after
         `ros2 param set /stretch_driver action_timeout 15.0`, each move is one point."""
@@ -383,25 +314,26 @@ class GraspServer(Node):
             res = self._call(
                 self._driver_params,
                 GetParameters.Request(names=["action_timeout"]),
+                cfg.service_timeout,
                 cancel,
             )
             timeout = res.values[0].double_value
         except (GraspFailed, IndexError) as e:
             self.get_logger().warn(f"cannot read stretch_driver action_timeout: {e}")
             return True
-        split = timeout < self._param("no_split_action_timeout")
+        split = timeout < cfg.no_split_action_timeout
         self.get_logger().info(
             f"stretch_driver action_timeout {timeout:.1f} s: "
             f"{'splitting long moves' if split else 'one point per move'}"
         )
         return split
 
-    def _move(self, start, points, cancel):
+    def _move(self, cfg, start, points, cancel):
         if self._split_moves:
-            points = split_long_moves(start, points, self._joint_params("max_step"))
+            points = split_long_moves(start, points, cfg.max_step)
         self._robot.move_arm(start, points, cancel)
 
-    def _detect(self, prompt, rotation, cancel):
+    def _detect(self, cfg, prompt, rotation, cancel):
         """Detect `prompt` (arm already still) and return its center in base_link.
 
         One color + depth pair is captured here; only the color image goes to the
@@ -409,12 +341,12 @@ class GraspServer(Node):
         """
         snap = take_snapshot(
             self,
-            self._param("color_topic"),
-            self._param("depth_topic"),
-            self._param("camera_info_topic"),
-            depth_compressed=self._param("depth_compressed"),
-            slop=self._param("sync_slop"),
-            timeout=self._param("snapshot_timeout"),
+            cfg.color_topic,
+            cfg.depth_topic,
+            cfg.camera_info_topic,
+            depth_compressed=cfg.depth_compressed,
+            slop=cfg.sync_slop,
+            timeout=cfg.snapshot_timeout,
             should_cancel=cancel,
             callback_group=self._group,
         )
@@ -423,7 +355,10 @@ class GraspServer(Node):
         color, depth, info = snap
 
         res = self._call(
-            self._detect_srv, Detect.Request(prompt=prompt, image=color), cancel
+            self._detect_srv,
+            Detect.Request(prompt=prompt, image=color),
+            cfg.service_timeout,
+            cancel,
         )
         if not res.success:
             raise GraspFailed(f"detect failed: {res.message}")
@@ -444,7 +379,7 @@ class GraspServer(Node):
                 mask,
                 depth_to_array(depth),
                 K,
-                depth_band=self._param("depth_band"),
+                depth_band=cfg.depth_band,
             )
         except ValueError as e:
             raise GraspFailed(f"{best.label}: {e}") from e
@@ -455,14 +390,13 @@ class GraspServer(Node):
         self.get_logger().info(
             f"{best.label}: {len(points)} points, width {width * 100:.1f} cm"
         )
-        if width > self._param("gripper_max_opening"):
+        if width > cfg.gripper_max_opening:
             raise GraspFailed(
                 f"object is {width * 100:.1f} cm wide, wider than the gripper opening"
             )
         return center_and_width(points)[0]
 
-    def _call(self, client, request, cancel):
-        timeout = self._param("service_timeout")
+    def _call(self, client, request, timeout, cancel):
         if not client.wait_for_service(timeout_sec=timeout):
             raise GraspFailed(f"service {client.srv_name} not available")
         future = client.call_async(request)
