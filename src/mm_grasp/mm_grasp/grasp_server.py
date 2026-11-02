@@ -25,12 +25,12 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
 from mm_interfaces.action import Grasp
-from mm_interfaces.srv import Detect
 
 from .base_control import BaseGains
 from .config import GraspConfig
-from .localize import center_and_width, mask_points, transform_points
-from .msg_utils import decode_mask_png, depth_to_array, urdf_joint_positions
+from .localize import center_and_width
+from .msg_utils import urdf_joint_positions
+from .perception import Locator, PerceptionError
 from .plan import (
     PlanningError,
     fixed_grasp_rotation,
@@ -40,7 +40,6 @@ from .plan import (
 )
 from .robot import Canceled, MotionError, Robot
 from .scene import Scene, SceneError
-from .snapshot import SnapshotError, take_snapshot
 
 
 class GraspFailed(RuntimeError):
@@ -63,9 +62,19 @@ class GraspServer(Node):
             callback_group=group,
         )
         self._scene = Scene(self, base_frame=cfg.base_frame)
-        self._group = group
-        self._detect_srv = self.create_client(
-            Detect, cfg.detect_service, callback_group=group
+        self._locator = Locator(
+            self,
+            self._scene,
+            cfg.detect_service,
+            cfg.color_topic,
+            cfg.depth_topic,
+            cfg.camera_info_topic,
+            depth_compressed=cfg.depth_compressed,
+            sync_slop=cfg.sync_slop,
+            snapshot_timeout=cfg.snapshot_timeout,
+            service_timeout=cfg.service_timeout,
+            depth_band=cfg.depth_band,
+            callback_group=group,
         )
         self._ghost_pub = self.create_publisher(JointState, "~/ghost_joint_states", 1)
 
@@ -124,7 +133,7 @@ class GraspServer(Node):
             MotionError,
             PlanningError,
             SceneError,
-            SnapshotError,
+            PerceptionError,
         ) as e:
             result.message = str(e)
             goal_handle.abort()
@@ -305,80 +314,17 @@ class GraspServer(Node):
             raise GraspFailed(f"cannot build IK model: {e}") from e
 
     def _detect(self, cfg, prompt, rotation, cancel):
-        """Detect `prompt` (arm already still) and return its center in base_link.
-
-        One color + depth pair is captured here; only the color image goes to the
-        GPU PC, and the mask comes back to be combined with the depth kept here.
-        """
-        snap = take_snapshot(
-            self,
-            cfg.color_topic,
-            cfg.depth_topic,
-            cfg.camera_info_topic,
-            depth_compressed=cfg.depth_compressed,
-            slop=cfg.sync_slop,
-            timeout=cfg.snapshot_timeout,
-            should_cancel=cancel,
-            callback_group=self._group,
-        )
-        if snap is None:
-            raise Canceled()
-        color, depth, info = snap
-
-        res = self._call(
-            self._detect_srv,
-            Detect.Request(prompt=prompt, image=color),
-            cfg.service_timeout,
-            cancel,
-        )
-        if not res.success:
-            raise GraspFailed(f"detect failed: {res.message}")
-        if not res.detections:
-            raise GraspFailed(f'no "{prompt}" found')
-        best = res.detections[0]  # sorted by score
-        self.get_logger().info(f"detected {best.label} ({best.score:.2f})")
-
-        mask = decode_mask_png(best.mask.data)
-        if mask[0].any() or mask[-1].any() or mask[:, 0].any() or mask[:, -1].any():
-            self.get_logger().warn(
-                f"{best.label} touches the image edge: it may be cut off, "
-                "so its center is uncertain"
-            )
-        K = np.array(info.k).reshape(3, 3)
-        try:
-            points = mask_points(
-                mask,
-                depth_to_array(depth),
-                K,
-                depth_band=cfg.depth_band,
-            )
-        except ValueError as e:
-            raise GraspFailed(f"{best.label}: {e}") from e
-
-        points = transform_points(points, *self._scene.lookup(color.header))
-
-        width = object_width(points, rotation)
+        """Detect `prompt` (arm already still) and return its center in base_link."""
+        seen = self._locator.locate(prompt, cancel)
+        width = object_width(seen.points, rotation)
         self.get_logger().info(
-            f"{best.label}: {len(points)} points, width {width * 100:.1f} cm"
+            f"{seen.label}: {len(seen.points)} points, width {width * 100:.1f} cm"
         )
         if width > cfg.gripper_max_opening:
             raise GraspFailed(
                 f"object is {width * 100:.1f} cm wide, wider than the gripper opening"
             )
-        return center_and_width(points)[0]
-
-    def _call(self, client, request, timeout, cancel):
-        if not client.wait_for_service(timeout_sec=timeout):
-            raise GraspFailed(f"service {client.srv_name} not available")
-        future = client.call_async(request)
-        deadline = time.monotonic() + timeout
-        while not future.done():
-            if cancel():
-                raise Canceled()
-            if time.monotonic() > deadline:
-                raise GraspFailed(f"service {client.srv_name} timed out")
-            time.sleep(0.02)
-        return future.result()
+        return center_and_width(seen.points)[0]
 
     def _sleep(self, seconds, cancel):
         end = time.monotonic() + seconds

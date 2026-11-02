@@ -5,6 +5,7 @@ from mm_grasp.localize import (
     center_and_width,
     mask_points,
     resize_mask,
+    touches_edge,
     transform_points,
 )
 
@@ -64,3 +65,13 @@ def test_transform_points():
     R = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]], float)
     pts = transform_points(np.array([[0.1, 0.2, 0.5]]), R, [1.0, 0.0, 0.0])
     assert pts[0] == pytest.approx([1.5, -0.1, -0.2])
+
+
+def test_touches_edge():
+    mask = np.zeros((4, 5), bool)
+    mask[1:3, 1:4] = True
+    assert not touches_edge(mask)
+    for edge in ((0, 2), (3, 2), (2, 0), (2, 4)):
+        cut = mask.copy()
+        cut[edge] = True
+        assert touches_edge(cut)

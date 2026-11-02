@@ -10,6 +10,13 @@ def depth_to_meters(depth: np.ndarray) -> np.ndarray:
     return depth.astype(np.float32)
 
 
+def touches_edge(mask: np.ndarray) -> bool:
+    """Whether the mask reaches the image border, i.e. the object may be cut off."""
+    return bool(
+        mask[0].any() or mask[-1].any() or mask[:, 0].any() or mask[:, -1].any()
+    )
+
+
 def resize_mask(mask: np.ndarray, shape) -> np.ndarray:
     """Nearest-neighbour resize, for when the detection image and depth differ in resolution."""
     if mask.shape == tuple(shape):

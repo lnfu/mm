@@ -14,27 +14,17 @@ WRIST_JOINTS = ["wrist_yaw_joint", "wrist_pitch_joint", "wrist_roll_joint"]
 
 @dataclass(frozen=True)
 class GraspConfig:
-    """Read at the start of each goal. Exceptions, read once at startup to build the
-    driver, TF and service clients: fjt_action, driver_joint, max_step,
-    no_split_action_timeout, base_frame (Scene) and detect_service."""
+    """Two kinds of parameters, see the section comments below."""
+
+    # ---- Read at the start of each goal: `ros2 param set` applies to the next goal.
 
     dry_run: bool = True  # plan + RViz only, nothing moves
     base_dofs: str = ""  # "" | "x" | "x,y" | "x,y,theta"
-    base_frame: str = "base_link"
     ee_frame: str = "grasp_center_link"
-
-    fjt_action: str = "/follow_joint_trajectory"  # served by /stretch_driver
-    # IK joint name -> name the driver uses (the same names on Stretch 4).
-    driver_joint: dict = field(default_factory=lambda: {n: n for n in ARM_JOINT_NAMES})
     start_pose: dict = field(
         default_factory=lambda: dict.fromkeys(ARM_JOINT_NAMES, 0.0)
     )
     grasp_wrist: dict = field(default_factory=lambda: dict.fromkeys(WRIST_JOINTS, 0.0))
-
-    # If stretch_driver's action_timeout is at least this long, long moves are not
-    # split into max_step pieces (fewer stops).
-    no_split_action_timeout: float = 10.0
-    max_step: dict = field(default_factory=lambda: dict(DEFAULT_MAX_STEP))
 
     pregrasp_distance: float = 0.10
     # stretch_driver stops at every point; arm-only approach is already straight.
@@ -43,9 +33,8 @@ class GraspConfig:
     # Let wrist yaw aim at objects off the gripper's line (base locked), keeping the
     # gripper level. The approach is still straight along base x.
     free_yaw: bool = True
-    max_aim_yaw_deg: float = (
-        10.0  # ~5 cm sideways; anything further is left to the base
-    )
+    # ~5 cm sideways; anything further is left to the base.
+    max_aim_yaw_deg: float = 10.0
     # The base is only used when the arm alone cannot reach (base_dofs not empty).
     # Then it moves so the arm ends near base_stage_arm at the pre-grasp, leaving
     # room for the approach (0.52 max - pregrasp_distance - margin).
@@ -62,7 +51,6 @@ class GraspConfig:
     ik_accept_orientation_error_deg: float = 3.0
 
     settle_time: float = 0.3  # s to wait after the arm stops, before detecting
-    service_timeout: float = 5.0
 
     # TODO[lnfu] the gripper mechanism is broken; open/close/check are skipped
     # while use_gripper is false and the arm motions still run.
@@ -70,7 +58,19 @@ class GraspConfig:
     gripper_max_opening: float = 0.10  # TODO[lnfu] measure
     closed_threshold: float = 0.0  # TODO[lnfu] from the empty vs holding test
 
+    # ---- Read once at startup to build Robot, Scene and Locator: restart to change.
+
+    base_frame: str = "base_link"
+    fjt_action: str = "/follow_joint_trajectory"  # served by /stretch_driver
+    # IK joint name -> name the driver uses (the same names on Stretch 4).
+    driver_joint: dict = field(default_factory=lambda: {n: n for n in ARM_JOINT_NAMES})
+    # If stretch_driver's action_timeout is at least this long, long moves are not
+    # split into max_step pieces (fewer stops).
+    no_split_action_timeout: float = 10.0
+    max_step: dict = field(default_factory=lambda: dict(DEFAULT_MAX_STEP))
+
     detect_service: str = "/mm_perception/detect"
+    service_timeout: float = 5.0
     # The driver aligns depth to the right camera (setDepthAlign(right)) and
     # publishes it only as compressedDepth, so the color image is the right one.
     color_topic: str = "/cameras_gripper/right/image_raw/compressed"
