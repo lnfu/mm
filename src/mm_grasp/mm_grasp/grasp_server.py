@@ -18,7 +18,6 @@ import numpy as np
 import pinocchio as pin
 import rclpy
 from geometry_msgs.msg import PointStamped
-from rcl_interfaces.srv import GetParameters
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -38,7 +37,6 @@ from .plan import (
     make_solvers,
     object_width,
     plan_grasp,
-    split_long_moves,
 )
 from .robot import Canceled, MotionError, Robot
 from .scene import Scene, SceneError
@@ -57,14 +55,15 @@ class GraspServer(Node):
 
         group = ReentrantCallbackGroup()
         self._robot = Robot(
-            self, cfg.fjt_action, cfg.driver_joint, callback_group=group
+            self,
+            cfg.fjt_action,
+            cfg.driver_joint,
+            max_step=cfg.max_step,
+            no_split_action_timeout=cfg.no_split_action_timeout,
+            callback_group=group,
         )
         self._scene = Scene(self, base_frame=cfg.base_frame)
         self._group = group
-        self._driver_params = self.create_client(
-            GetParameters, "/stretch_driver/get_parameters", callback_group=group
-        )
-        self._split_moves = True
         self._detect_srv = self.create_client(
             Detect, cfg.detect_service, callback_group=group
         )
@@ -154,7 +153,6 @@ class GraspServer(Node):
             goal_handle.publish_feedback(Grasp.Feedback(phase=p))
 
         arm_solver, base_solver = self._solvers(cfg)
-        self._split_moves = self._driver_needs_split(cfg, cancel)
         start_pose = cfg.start_pose
 
         # pre-grasp pose
@@ -162,7 +160,7 @@ class GraspServer(Node):
         if dry_run:
             current = start_pose
         else:
-            self._move(cfg, self._robot.arm_joints(), [start_pose], cancel)
+            self._robot.move_arm(self._robot.arm_joints(), [start_pose], cancel)
             self._sleep(cfg.settle_time, cancel)
             current = self._robot.arm_joints()
 
@@ -225,7 +223,7 @@ class GraspServer(Node):
         else:
             self.get_logger().warn("use_gripper is false: not opening the gripper")
 
-        self._move(cfg, current, [plan.pregrasp] + plan.approach, cancel)
+        self._robot.move_arm(current, [plan.pregrasp] + plan.approach, cancel)
 
         # close gripper
         phase(Grasp.Feedback.GRASPING)
@@ -239,7 +237,7 @@ class GraspServer(Node):
 
         # lift
         phase(Grasp.Feedback.LIFTING)
-        self._move(cfg, plan.approach[-1], [plan.lift], cancel)
+        self._robot.move_arm(plan.approach[-1], [plan.lift], cancel)
         return self._grasped_point(cfg, center)
 
     def _detect_target(self, cfg, prompt, rotation, cancel):
@@ -305,33 +303,6 @@ class GraspServer(Node):
             )
         except ValueError as e:
             raise GraspFailed(f"cannot build IK model: {e}") from e
-
-    def _driver_needs_split(self, cfg, cancel):
-        """Whether long moves must be cut up: stretch_driver gives each trajectory point
-        action_timeout seconds (3 by default). With a long timeout, e.g. after
-        `ros2 param set /stretch_driver action_timeout 15.0`, each move is one point."""
-        try:
-            res = self._call(
-                self._driver_params,
-                GetParameters.Request(names=["action_timeout"]),
-                cfg.service_timeout,
-                cancel,
-            )
-            timeout = res.values[0].double_value
-        except (GraspFailed, IndexError) as e:
-            self.get_logger().warn(f"cannot read stretch_driver action_timeout: {e}")
-            return True
-        split = timeout < cfg.no_split_action_timeout
-        self.get_logger().info(
-            f"stretch_driver action_timeout {timeout:.1f} s: "
-            f"{'splitting long moves' if split else 'one point per move'}"
-        )
-        return split
-
-    def _move(self, cfg, start, points, cancel):
-        if self._split_moves:
-            points = split_long_moves(start, points, cfg.max_step)
-        self._robot.move_arm(start, points, cancel)
 
     def _detect(self, cfg, prompt, rotation, cancel):
         """Detect `prompt` (arm already still) and return its center in base_link.

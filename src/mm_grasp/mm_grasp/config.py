@@ -14,6 +14,10 @@ WRIST_JOINTS = ["wrist_yaw_joint", "wrist_pitch_joint", "wrist_roll_joint"]
 
 @dataclass(frozen=True)
 class GraspConfig:
+    """Read at the start of each goal. Exceptions, read once at startup to build the
+    driver, TF and service clients: fjt_action, driver_joint, max_step,
+    no_split_action_timeout, base_frame (Scene) and detect_service."""
+
     dry_run: bool = True  # plan + RViz only, nothing moves
     base_dofs: str = ""  # "" | "x" | "x,y" | "x,y,theta"
     base_frame: str = "base_link"

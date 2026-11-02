@@ -6,6 +6,7 @@ import time
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from rcl_interfaces.srv import GetParameters
 from rclpy.action import ActionClient
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import JointState
@@ -22,7 +23,7 @@ from .base_control import (
     yaw_from_quaternion,
 )
 from .msg_utils import joint_trajectory
-from .plan import MIN_JOINT_CHANGE, moving_joints
+from .plan import DEFAULT_MAX_STEP, MIN_JOINT_CHANGE, moving_joints, split_long_moves
 
 
 class Canceled(Exception):
@@ -34,15 +35,28 @@ class MotionError(RuntimeError):
 
 
 class Robot:
-    def __init__(self, node, fjt_action, driver_joint_names: dict, callback_group=None):
+    def __init__(
+        self,
+        node,
+        fjt_action,
+        driver_joint_names: dict,
+        max_step: dict = DEFAULT_MAX_STEP,
+        no_split_action_timeout: float = 10.0,
+        callback_group=None,
+    ):
         """
         Args:
             fjt_action: FollowJointTrajectory action name.
             driver_joint_names: IK joint name (ARM_JOINT_NAMES) -> name the driver uses
                 in joint_states and FollowJointTrajectory.
+            max_step: largest change per joint in one trajectory point, used when the
+                driver's action_timeout is shorter than no_split_action_timeout.
         """
         self._node = node
         self._driver_names = driver_joint_names
+        self._max_step = max_step
+        self._no_split_action_timeout = no_split_action_timeout
+        self._split = None  # last answer of _needs_split, to log only changes
         self._lock = threading.Lock()
         self._joint_state = {}
         self._urdf = None
@@ -65,6 +79,11 @@ class Robot:
         )
         self._fjt = ActionClient(
             node, FollowJointTrajectory, fjt_action, callback_group=callback_group
+        )
+        self._driver_params = node.create_client(
+            GetParameters,
+            "/stretch_driver/get_parameters",
+            callback_group=callback_group,
         )
 
         # Base: stretch_driver takes /cmd_vel (vx, vy, w) in navigation mode and has no
@@ -122,14 +141,42 @@ class Robot:
 
         stretch_driver runs a trajectory point by point anyway (no interpolation,
         time_from_start ignored), so each point goes out as its own goal with only the
-        joints that move (see plan.moving_joints).
+        joints that move (see plan.moving_joints). The driver aborts a point after its
+        action_timeout, so long moves are cut into max_step pieces when it is short.
         Raises Canceled if should_cancel() turns true (the goal is canceled first),
         MotionError if the controller rejects or fails it.
         """
         if not self._fjt.wait_for_server(timeout_sec=2.0):
             raise MotionError("FollowJointTrajectory server not available")
+        if self._needs_split(should_cancel):
+            points = split_long_moves(start, points, self._max_step)
         for point in moving_joints(start, points, MIN_JOINT_CHANGE):
             self._move_to(point, should_cancel)
+
+    def _needs_split(self, should_cancel, timeout=2.0) -> bool:
+        """Whether stretch_driver's action_timeout (3 s by default) is too short for
+        long moves. Asked on every move, since `ros2 param set /stretch_driver
+        action_timeout 15.0` changes it at run time. Unknown counts as too short."""
+        action_timeout = None
+        if self._driver_params.wait_for_service(timeout_sec=timeout):
+            future = self._driver_params.call_async(
+                GetParameters.Request(names=["action_timeout"])
+            )
+            deadline = time.monotonic() + timeout
+            while not future.done() and time.monotonic() < deadline:
+                if should_cancel():
+                    raise Canceled()
+                time.sleep(0.02)
+            if future.done() and future.result().values:
+                action_timeout = future.result().values[0].double_value
+        split = action_timeout is None or action_timeout < self._no_split_action_timeout
+        if split != self._split:
+            self._split = split
+            self._node.get_logger().info(
+                f"stretch_driver action_timeout {action_timeout} s: "
+                f"{'splitting long moves' if split else 'one point per move'}"
+            )
+        return split
 
     def _move_to(self, point: dict, should_cancel):
         names = list(point)
