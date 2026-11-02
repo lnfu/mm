@@ -7,9 +7,9 @@ import numpy as np
 
 from mm_interfaces.srv import Detect
 
+from .errors import Canceled
 from .localize import mask_points, touches_edge, transform_points
 from .msg_utils import decode_mask_png, depth_to_array
-from .robot import Canceled
 from .scene import SceneError
 from .snapshot import SnapshotError, take_snapshot
 

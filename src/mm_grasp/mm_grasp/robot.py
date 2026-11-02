@@ -22,12 +22,9 @@ from .base_control import (
     translate_command,
     yaw_from_quaternion,
 )
+from .errors import Canceled
 from .msg_utils import joint_trajectory
 from .plan import DEFAULT_MAX_STEP, MIN_JOINT_CHANGE, moving_joints, split_long_moves
-
-
-class Canceled(Exception):
-    pass
 
 
 class MotionError(RuntimeError):

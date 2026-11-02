@@ -3,19 +3,13 @@
   ros2 run mm_grasp grasp_server --ros-args --params-file config/grasp.yaml
   ros2 action send_goal /mm_grasp/grasp mm_interfaces/action/Grasp "{prompt: cup}"
 
-Flow: start pose -> snapshot + detect + 3D -> pre-grasp -> straight approach -> close -> lift.
-Success leaves the arm lifted; failure stops where it is; no retries.
-
 dry_run: nothing moves. The plan is shown in RViz through ~/target_markers and
 ~/ghost_joint_states (feed it to a second robot_state_publisher with
 frame_prefix "ghost/"). The ghost shows the arm only, not the base motion.
 """
 
 import threading
-import time
 
-import numpy as np
-import pinocchio as pin
 import rclpy
 from geometry_msgs.msg import PointStamped
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -26,24 +20,20 @@ from sensor_msgs.msg import JointState
 
 from mm_interfaces.action import Grasp
 
-from .base_control import BaseGains
+from . import grasp
 from .config import GraspConfig
-from .localize import center_and_width
+from .errors import Canceled
+from .grasp import GraspFailed, GraspGoal, Phase
 from .msg_utils import urdf_joint_positions
 from .perception import Locator, PerceptionError
-from .plan import (
-    PlanningError,
-    fixed_grasp_rotation,
-    make_solvers,
-    object_width,
-    plan_grasp,
-)
-from .robot import Canceled, MotionError, Robot
+from .plan import PlanningError
+from .primitives import Context, OutOfReach, sleep
+from .robot import MotionError, Robot
 from .scene import Scene, SceneError
 
-
-class GraspFailed(RuntimeError):
-    pass
+assert all(getattr(Grasp.Feedback, p.name) == p for p in Phase), (
+    "grasp.Phase does not match Grasp.action"
+)
 
 
 class GraspServer(Node):
@@ -91,8 +81,6 @@ class GraspServer(Node):
         )
         self.get_logger().info(f"READY (dry_run={cfg.dry_run})")
 
-    # ---- action plumbing ----
-
     def _on_goal(self, goal):
         if goal.mode == Grasp.Goal.MODE_PROMPT and not goal.prompt.strip():
             self.get_logger().warn("rejecting goal: MODE_PROMPT needs a prompt")
@@ -110,8 +98,19 @@ class GraspServer(Node):
     def _execute(self, goal_handle):
         result = Grasp.Result()
         cfg = GraspConfig.from_node(self)
+
+        def should_cancel():
+            return goal_handle.is_cancel_requested
+
+        ctx = Context(
+            robot=self._robot,
+            locator=self._locator,
+            observer=_Observer(self, goal_handle, cfg.base_frame, should_cancel),
+            log=self.get_logger(),
+            should_cancel=should_cancel,
+        )
         try:
-            point = self._run(goal_handle, cfg)
+            center = grasp.run(self._goal(goal_handle.request), cfg, ctx)
             result.success = True
             if cfg.dry_run:
                 result.message = "dry_run: plan ok"
@@ -119,7 +118,7 @@ class GraspServer(Node):
                 result.message = "grasped"
             else:
                 result.message = "motion done (use_gripper is false, gripper not used)"
-            result.grasped_point = point
+            result.grasped_point = self._point_stamped(cfg.base_frame, center)
             goal_handle.succeed()
         except Canceled:
             self._robot.stop()
@@ -130,6 +129,7 @@ class GraspServer(Node):
             goal_handle.abort()
         except (
             GraspFailed,
+            OutOfReach,
             MotionError,
             PlanningError,
             SceneError,
@@ -147,200 +147,55 @@ class GraspServer(Node):
             self.get_logger().warn(f"grasp result: {result.message}")
         return result
 
-    # ---- grasping ----
+    def _goal(self, request):
+        """The action goal as a GraspGoal; a MODE_POINT target goes to the base frame."""
+        if request.mode == Grasp.Goal.MODE_POINT:
+            point = request.target_point
+            return GraspGoal(point=self._scene.to_base(point.header, point.point))
+        return GraspGoal(prompt=request.prompt)
 
-    def _run(self, goal_handle, cfg):
-        goal = goal_handle.request
-        dry_run = cfg.dry_run
+    def _point_stamped(self, frame, center):
+        msg = PointStamped()
+        msg.header.frame_id = frame
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.point.x, msg.point.y, msg.point.z = (float(v) for v in center)
+        return msg
 
-        def cancel():
-            return goal_handle.is_cancel_requested
 
-        def phase(p):
-            if cancel():
-                raise Canceled()
-            goal_handle.publish_feedback(Grasp.Feedback(phase=p))
+class _Observer:
+    """What grasp.run reports, as action feedback, RViz markers and logs."""
 
-        arm_solver, base_solver = self._solvers(cfg)
-        start_pose = cfg.start_pose
+    def __init__(self, server, goal_handle, base_frame, should_cancel):
+        self._server = server
+        self._goal_handle = goal_handle
+        self._base_frame = base_frame
+        self._should_cancel = should_cancel
 
-        # pre-grasp pose
-        phase(Grasp.Feedback.MOVING_TO_START)
-        if dry_run:
-            current = start_pose
-        else:
-            self._robot.move_arm(self._robot.arm_joints(), [start_pose], cancel)
-            self._sleep(cfg.settle_time, cancel)
-            current = self._robot.arm_joints()
+    def phase(self, phase):
+        self._goal_handle.publish_feedback(Grasp.Feedback(phase=int(phase)))
 
-        # detect (& project to 3D)
-        phase(Grasp.Feedback.DETECTING)
-        grasp_wrist = cfg.grasp_wrist
-        rotation = fixed_grasp_rotation(arm_solver, grasp_wrist)
-        if goal.mode == Grasp.Goal.MODE_POINT:
-            center = self._scene.to_base(
-                goal.target_point.header, goal.target_point.point
-            )
-            self._show_target(cfg, center)
-        else:
-            center = self._detect_target(cfg, goal.prompt, rotation, cancel)
-
-        # planning: the arm alone if it can, else the base moves first
-        plan = self._plan(cfg, arm_solver, base_solver, current, center, grasp_wrist)
-        if dry_run:
-            self._show_ghost([plan.pregrasp] + plan.approach + [plan.lift], cancel)
-            return self._grasped_point(cfg, center)
-
-        # approach
-        phase(Grasp.Feedback.APPROACHING)
-        base_moves = 0
-        while any(abs(v) > 1e-3 for v in plan.base.values()):
-            if base_moves == cfg.max_base_moves:
-                raise GraspFailed(
-                    f"still out of arm reach after {base_moves} base moves"
-                )
-            self._robot.move_base(
-                plan.base.get("base_x", 0.0),
-                plan.base.get("base_y", 0.0),
-                plan.base.get("base_theta", 0.0),
-                cancel,
-                BaseGains(
-                    max_linear=cfg.base_max_linear,
-                    max_angular=cfg.base_max_angular,
-                ),
-            )
-            base_moves += 1
-            # TODO[lnfu]
-            self._sleep(cfg.settle_time, cancel)
-            current = self._robot.arm_joints()
-            phase(Grasp.Feedback.DETECTING)
-            if (
-                goal.mode == Grasp.Goal.MODE_POINT
-            ):  # no camera: trust the planned base motion
-                moved = base_solver.base_motion({**plan.pregrasp, **plan.base})
-                center = moved.actInv(pin.SE3(np.eye(3), center)).translation
-                self._show_target(cfg, center)
-            else:
-                center = self._detect_target(cfg, goal.prompt, rotation, cancel)
-            plan = self._plan(
-                cfg, arm_solver, base_solver, current, center, grasp_wrist
-            )
-            phase(Grasp.Feedback.APPROACHING)
-
-        if cfg.use_gripper:
-            self._robot.open_gripper(cancel)
-        else:
-            self.get_logger().warn("use_gripper is false: not opening the gripper")
-
-        self._robot.move_arm(current, [plan.pregrasp] + plan.approach, cancel)
-
-        # close gripper
-        phase(Grasp.Feedback.GRASPING)
-        if cfg.use_gripper:
-            self._robot.close_gripper(cancel)
-            # TODO[lnfu] check the direction once the gripper range is known.
-            if self._robot.gripper_position() <= cfg.closed_threshold:
-                raise GraspFailed("gripper closed completely: nothing grasped")
-        else:
-            self.get_logger().warn("use_gripper is false: not closing the gripper")
-
-        # lift
-        phase(Grasp.Feedback.LIFTING)
-        self._robot.move_arm(plan.approach[-1], [plan.lift], cancel)
-        return self._grasped_point(cfg, center)
-
-    def _detect_target(self, cfg, prompt, rotation, cancel):
-        center = self._detect(cfg, prompt, rotation, cancel)
-        self._show_target(cfg, center)
-        return center
-
-    def _show_target(self, cfg, center):
+    def target(self, center):
         # Shown before planning, so it is visible even if IK fails.
-        self._scene.publish_markers(center)
-        self.get_logger().info(f"target in {cfg.base_frame}: {center.round(3)}")
+        self._server._scene.publish_markers(center)
+        self._log(f"target in {self._base_frame}: {center.round(3)}")
 
-    def _plan(self, cfg, arm_solver, base_solver, current, center, grasp_wrist):
-        """plan_grasp with the configured parameters; base_solver None locks the base."""
-        rotation = fixed_grasp_rotation(arm_solver, grasp_wrist)
-        plan = plan_grasp(
-            arm_solver,
-            current,
-            center,
-            rotation,
-            pregrasp_distance=cfg.pregrasp_distance,
-            n_waypoints=cfg.n_waypoints,
-            lift_height=cfg.lift_height,
-            accept_position_error=cfg.ik_accept_position_error,
-            accept_orientation_error=np.deg2rad(cfg.ik_accept_orientation_error_deg),
-            base_solver=base_solver,
-            base_posture={
-                "arm_joint": cfg.base_stage_arm,
-                "wrist_yaw_joint": grasp_wrist["wrist_yaw_joint"],
-            },
-        )
-        self._scene.publish_markers(
+    def plan(self, center, plan):
+        self._server._scene.publish_markers(
             center, plan.poses["approach"] + [plan.poses["lift"]]
         )
-        self.get_logger().info(
-            f"plan ok: base {plan.base or 'locked'}, center {center.round(3)}"
-        )
-        return plan
+        self._log(f"plan ok: base {plan.base or 'locked'}, center {center.round(3)}")
 
-    def _grasped_point(self, cfg, center):
-        """center as a PointStamped in the (current) base frame."""
-        grasped = PointStamped()
-        grasped.header.frame_id = cfg.base_frame
-        grasped.header.stamp = self.get_clock().now().to_msg()
-        grasped.point.x, grasped.point.y, grasped.point.z = (float(v) for v in center)
-        return grasped
-
-    def _solvers(self, cfg):
-        urdf = self._robot.urdf
-        if urdf is None:
-            raise GraspFailed("no /robot_description received yet")
-        try:
-            return make_solvers(
-                urdf,
-                cfg.base_dof_list,
-                free_yaw=cfg.free_yaw,
-                grasp_yaw=cfg.grasp_wrist["wrist_yaw_joint"],
-                max_aim_yaw=np.deg2rad(cfg.max_aim_yaw_deg),
-                max_base_translation=cfg.max_base_translation,
-                max_base_rotation=np.deg2rad(cfg.max_base_rotation_deg),
-                ee_frame=cfg.ee_frame,
-                base_frame=cfg.base_frame,
-            )
-        except ValueError as e:
-            raise GraspFailed(f"cannot build IK model: {e}") from e
-
-    def _detect(self, cfg, prompt, rotation, cancel):
-        """Detect `prompt` (arm already still) and return its center in base_link."""
-        seen = self._locator.locate(prompt, cancel)
-        width = object_width(seen.points, rotation)
-        self.get_logger().info(
-            f"{seen.label}: {len(seen.points)} points, width {width * 100:.1f} cm"
-        )
-        if width > cfg.gripper_max_opening:
-            raise GraspFailed(
-                f"object is {width * 100:.1f} cm wide, wider than the gripper opening"
-            )
-        return center_and_width(seen.points)[0]
-
-    def _sleep(self, seconds, cancel):
-        end = time.monotonic() + seconds
-        while time.monotonic() < end:
-            if cancel():
-                raise Canceled()
-            time.sleep(0.02)
-
-    def _show_ghost(self, waypoints, cancel):
+    def ghost(self, waypoints):
         """Play the arm waypoints on ~/ghost_joint_states, using URDF joint names."""
         for joints in waypoints:
             msg = JointState()
-            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.stamp = self._server.get_clock().now().to_msg()
             msg.name, msg.position = urdf_joint_positions(joints)
-            self._ghost_pub.publish(msg)
-            self._sleep(0.3, cancel)
+            self._server._ghost_pub.publish(msg)
+            sleep(0.3, self._should_cancel)
+
+    def _log(self, message):
+        self._server.get_logger().info(message)
 
 
 def main():
