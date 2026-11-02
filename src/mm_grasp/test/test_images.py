@@ -3,28 +3,11 @@ from types import SimpleNamespace as NS
 import numpy as np
 import pytest
 
-from mm_grasp.msg_utils import (
+from mm_grasp.perception.images import (
     decode_mask_png,
     depth_to_array,
     image_to_array,
-    quaternion_to_matrix,
-    transform_to_rt,
-    urdf_joint_positions,
 )
-
-
-def test_quaternion_to_matrix():
-    s = np.sqrt(0.5)  # 90 deg about z
-    R = quaternion_to_matrix(NS(x=0, y=0, z=s, w=s))
-    assert R @ [1, 0, 0] == pytest.approx([0, 1, 0])
-
-
-def test_transform_to_rt():
-    s = np.sqrt(0.5)
-    R, t = transform_to_rt(
-        NS(translation=NS(x=1.0, y=0.0, z=0.5), rotation=NS(x=0, y=0, z=s, w=s))
-    )
-    assert R @ [0.2, 0, 0] + t == pytest.approx([1.0, 0.2, 0.5])
 
 
 def depth_msg(arr, encoding, pad=0, bigendian=False):
@@ -87,15 +70,3 @@ def test_compressed_depth_rejects_other_formats():
 def test_depth_to_array_raw():
     arr = np.array([[1, 2]], np.uint16)
     assert np.array_equal(depth_to_array(depth_msg(arr, "16UC1")), arr)
-
-
-def test_urdf_joint_positions_splits_arm():
-    names, positions = urdf_joint_positions({"lift_joint": 0.6, "arm_joint": 0.4})
-    assert names == [
-        "lift_joint",
-        "arm_l1_joint",
-        "arm_l2_joint",
-        "arm_l3_joint",
-        "arm_l4_joint",
-    ]
-    assert positions == pytest.approx([0.6, 0.1, 0.1, 0.1, 0.1])

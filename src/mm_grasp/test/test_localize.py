@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from mm_grasp.localize import (
+from mm_grasp.perception.localize import (
     center_and_width,
     mask_points,
     resize_mask,

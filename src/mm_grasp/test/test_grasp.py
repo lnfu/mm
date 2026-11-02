@@ -4,11 +4,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from mm_grasp import grasp
 from mm_grasp.config import GraspConfig
 from mm_grasp.errors import Canceled
-from mm_grasp.grasp import GraspGoal, Phase
-from mm_grasp.primitives import Context, OutOfReach
+from mm_grasp.skills import grasp
+from mm_grasp.skills.grasp import GraspGoal, Phase, object_width
+from mm_grasp.skills.primitives import Context, OutOfReach
 from mm_ik.solver import IKSolver
 
 stretch4_urdf = pytest.importorskip("stretch4_urdf")
@@ -191,3 +191,11 @@ def test_too_wide_object_is_rejected(urdf, reachable):
     with pytest.raises(grasp.GraspFailed, match="wider than the gripper"):
         grasp.run(GraspGoal(prompt="can"), cfg, ctx)
     assert len(ctx.robot.arm_moves) == 1  # only the start pose
+
+
+def test_object_width_along_closing_axis():
+    R = np.eye(3)  # closing axis = base y
+    pts = np.column_stack(
+        [np.linspace(0, 0.3, 200), np.linspace(-0.03, 0.03, 200), np.zeros(200)]
+    )
+    assert object_width(pts, R) == pytest.approx(0.06, abs=5e-3)

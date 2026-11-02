@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from mm_grasp.base_control import (
+from mm_grasp.motion.base_control import (
     BaseGains,
     Pose2D,
     displacement,

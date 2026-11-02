@@ -6,9 +6,9 @@ from enum import IntEnum
 import numpy as np
 import pinocchio as pin
 
-from .base_control import BaseGains
-from .localize import center_and_width
-from .plan import fixed_grasp_rotation, make_solvers, object_width, plan_grasp
+from ..motion.base_control import BaseGains
+from ..motion.planning import fixed_grasp_rotation, make_solvers, plan_grasp
+from ..perception.localize import center_and_width
 from .primitives import approach_with_base
 
 
@@ -155,3 +155,13 @@ def _detect(goal, cfg, ctx, rotation):
             f"object is {width * 100:.1f} cm wide, wider than the gripper opening"
         )
     return center_and_width(seen.points)[0]
+
+
+def object_width(points: np.ndarray, rotation: np.ndarray) -> float:
+    """Extent of the object points (base frame) along the gripper's closing axis, the
+    y axis of grasp_center_link (`rotation`).
+
+    TODO[lnfu] confirm the closing axis on the robot (finger joints rotate about z,
+    offset along y).
+    """
+    return center_and_width(points @ rotation, width_axis=1)[1]

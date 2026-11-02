@@ -7,26 +7,6 @@ import pinocchio as pin
 
 from mm_ik.solver import ARM_JOINT_NAMES, IKSolver
 
-from .localize import center_and_width
-
-# Largest change per trajectory point, so stretch_driver finishes each within its 3 s action_timeout.
-DEFAULT_MAX_STEP = {
-    "lift_joint": 0.2,
-    "arm_joint": 0.15,
-    "wrist_yaw_joint": 0.8,
-    "wrist_pitch_joint": 0.8,
-    "wrist_roll_joint": 0.8,
-}
-# Smaller changes are left out of a trajectory point (see moving_joints).
-MIN_JOINT_CHANGE = {
-    "lift_joint": 0.002,
-    "arm_joint": 0.002,
-    "wrist_yaw_joint": 0.005,
-    "wrist_pitch_joint": 0.005,
-    "wrist_roll_joint": 0.005,
-}
-
-
 # IK orientation cost per grasp_center_link axis (x, y, z). Zero on z lets the wrist
 # yaw aim at objects slightly off the gripper's line while the gripper stays level.
 FREE_YAW_ORIENTATION_COST = (0.5, 0.5, 0.0)
@@ -128,19 +108,6 @@ def fixed_grasp_rotation(solver, wrist: dict) -> np.ndarray:
     joints = {name: 0.0 for name in ARM_JOINT_NAMES}
     joints.update(wrist)
     return solver.fk(joints).rotation
-
-
-def closing_axis(rotation: np.ndarray) -> np.ndarray:
-    """The fingers close along y of grasp_center_link.
-
-    TODO[lnfu] confirm on the robot (finger joints rotate about z, offset along y).
-    """
-    return rotation[:, 1]
-
-
-def object_width(points: np.ndarray, rotation: np.ndarray) -> float:
-    """Extent of the object points (base_link) along the gripper's closing axis."""
-    return center_and_width(points @ rotation, width_axis=1)[1]
 
 
 @dataclass
@@ -271,39 +238,3 @@ def _plan(solver, arm_solver, start, poses, posture, accept) -> GraspPlan:
         arm.append(joints)
 
     return GraspPlan(base, _arm_only(pre.joints), arm[:-1], arm[-1], poses)
-
-
-def split_long_moves(start: dict, points: list, max_step: dict) -> list:
-    """Insert evenly spaced points so no joint moves more than max_step[j] per point.
-
-    stretch_driver stops at every point and aborts a point it cannot finish within
-    3 s (its action_timeout), so long moves are cut into pieces it can finish.
-    The original points are kept exactly.
-    """
-    out = []
-    prev = start
-    for p in points:
-        n = max(
-            1, int(np.ceil(max(abs(p[j] - prev[j]) / max_step[j] for j in p) - 1e-9))
-        )
-        out += [{j: prev[j] + (p[j] - prev[j]) * k / n for j in p} for k in range(1, n)]
-        out.append(dict(p))
-        prev = p
-    return out
-
-
-def moving_joints(start: dict, points: list, min_change: dict) -> list:
-    """Per point, only the joints that move more than min_change[j] since the last point.
-
-    stretch_driver counts lift/arm as done only after their motion generator has moved,
-    so a point that leaves one of them where it is never finishes (Goal timed out).
-    Left-out joints simply stay put; points where nothing moves are dropped.
-    """
-    out = []
-    prev = dict(start)
-    for p in points:
-        moved = {j: v for j, v in p.items() if abs(v - prev[j]) > min_change[j]}
-        if moved:
-            out.append(moved)
-            prev.update(moved)
-    return out

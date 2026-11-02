@@ -7,10 +7,10 @@ import numpy as np
 
 from mm_interfaces.srv import Detect
 
-from .errors import Canceled
+from ..errors import Canceled
+from ..scene import SceneError
+from .images import decode_mask_png, depth_to_array
 from .localize import mask_points, touches_edge, transform_points
-from .msg_utils import decode_mask_png, depth_to_array
-from .scene import SceneError
 from .snapshot import SnapshotError, take_snapshot
 
 

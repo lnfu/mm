@@ -15,6 +15,7 @@ from std_msgs.msg import String
 from mm_ik.model import ARM_SEGMENTS
 from mm_ik.solver import ARM_JOINT_NAMES
 
+from ..errors import Canceled
 from .base_control import (
     BaseGains,
     Pose2D,
@@ -22,9 +23,13 @@ from .base_control import (
     translate_command,
     yaw_from_quaternion,
 )
-from .errors import Canceled
-from .msg_utils import joint_trajectory
-from .plan import DEFAULT_MAX_STEP, MIN_JOINT_CHANGE, moving_joints, split_long_moves
+from .trajectory import (
+    DEFAULT_MAX_STEP,
+    MIN_JOINT_CHANGE,
+    joint_trajectory,
+    moving_joints,
+    split_long_moves,
+)
 
 
 class MotionError(RuntimeError):
@@ -138,7 +143,7 @@ class Robot:
 
         stretch_driver runs a trajectory point by point anyway (no interpolation,
         time_from_start ignored), so each point goes out as its own goal with only the
-        joints that move (see plan.moving_joints). The driver aborts a point after its
+        joints that move (see trajectory.moving_joints). The driver aborts a point after its
         action_timeout, so long moves are cut into max_step pieces when it is short.
         Raises Canceled if should_cancel() turns true (the goal is canceled first),
         MotionError if the controller rejects or fails it.

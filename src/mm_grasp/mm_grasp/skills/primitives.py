@@ -2,7 +2,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .errors import Canceled
+from ..errors import Canceled
 
 
 class OutOfReach(RuntimeError):

@@ -20,16 +20,16 @@ from sensor_msgs.msg import JointState
 
 from mm_interfaces.action import Grasp
 
-from . import grasp
 from .config import GraspConfig
 from .errors import Canceled
-from .grasp import GraspFailed, GraspGoal, Phase
-from .msg_utils import urdf_joint_positions
-from .perception import Locator, PerceptionError
-from .plan import PlanningError
-from .primitives import Context, OutOfReach, sleep
-from .robot import MotionError, Robot
+from .motion.planning import PlanningError
+from .motion.robot import MotionError, Robot
+from .motion.trajectory import urdf_joint_positions
+from .perception.locator import Locator, PerceptionError
 from .scene import Scene, SceneError
+from .skills import grasp
+from .skills.grasp import GraspFailed, GraspGoal, Phase
+from .skills.primitives import Context, OutOfReach, sleep
 
 assert all(getattr(Grasp.Feedback, p.name) == p for p in Phase), (
     "grasp.Phase does not match Grasp.action"

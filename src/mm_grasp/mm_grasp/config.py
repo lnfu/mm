@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 
 from mm_ik.solver import ARM_JOINT_NAMES
 
-from .plan import DEFAULT_MAX_STEP
+from .motion.trajectory import DEFAULT_MAX_STEP
 
 WRIST_JOINTS = ["wrist_yaw_joint", "wrist_pitch_joint", "wrist_roll_joint"]
 
