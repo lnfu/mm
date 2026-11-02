@@ -86,6 +86,9 @@ class GraspServer(Node):
         p("max_base_rotation_deg", 45.0)
         p("base_max_linear", 0.05)  # m/s
         p("base_max_angular", 0.2)  # rad/s
+        # After each base move the object is detected again and the grasp replanned,
+        # with the base allowed again: a first look near the image edge can be far off.
+        p("max_base_moves", 3)
         # A target slightly off the gripper's line (base locked) never converges exactly.
         p("ik_accept_position_error", 0.015)  # m
         p("ik_accept_orientation_error_deg", 3.0)
@@ -247,7 +250,12 @@ class GraspServer(Node):
 
         # approach
         phase(Grasp.Feedback.APPROACHING)
-        if any(abs(v) > 1e-3 for v in plan.base.values()):
+        base_moves = 0
+        while any(abs(v) > 1e-3 for v in plan.base.values()):
+            if base_moves == self._param("max_base_moves"):
+                raise GraspFailed(
+                    f"still out of arm reach after {base_moves} base moves"
+                )
             self._robot.move_base(
                 plan.base.get("base_x", 0.0),
                 plan.base.get("base_y", 0.0),
@@ -258,6 +266,7 @@ class GraspServer(Node):
                     max_angular=self._param("base_max_angular"),
                 ),
             )
+            base_moves += 1
             # TODO[lnfu]
             self._sleep(self._param("settle_time"), cancel)
             current = self._robot.arm_joints()
@@ -270,7 +279,7 @@ class GraspServer(Node):
                 self._show_target(center)
             else:
                 center = self._detect_target(goal.prompt, rotation, cancel)
-            plan = self._plan(arm_solver, None, current, center, grasp_wrist)
+            plan = self._plan(arm_solver, base_solver, current, center, grasp_wrist)
             phase(Grasp.Feedback.APPROACHING)
 
         if self._param("use_gripper"):
@@ -423,10 +432,16 @@ class GraspServer(Node):
         best = res.detections[0]  # sorted by score
         self.get_logger().info(f"detected {best.label} ({best.score:.2f})")
 
+        mask = decode_mask_png(best.mask.data)
+        if mask[0].any() or mask[-1].any() or mask[:, 0].any() or mask[:, -1].any():
+            self.get_logger().warn(
+                f"{best.label} touches the image edge: it may be cut off, "
+                "so its center is uncertain"
+            )
         K = np.array(info.k).reshape(3, 3)
         try:
             points = mask_points(
-                decode_mask_png(best.mask.data),
+                mask,
                 depth_to_array(depth),
                 K,
                 depth_band=self._param("depth_band"),
