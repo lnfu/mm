@@ -1,0 +1,9 @@
+# Run with prek (or pre-commit): uvx prek install
+# Tests run on the robot and the GPU PC: scripts/deploy.sh all --build --test
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format

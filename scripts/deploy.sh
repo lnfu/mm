@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-#   scripts/deploy.sh [gpu|robot|all] [--build] [--dry-run]
+#   scripts/deploy.sh [gpu|robot|all] [--build] [--test] [--dry-run]
 #
 set -euo pipefail
 
@@ -16,17 +16,19 @@ GPU_PKGS=(mm_interfaces mm_perception)
 ROBOT_PKGS=(mm_interfaces mm_ik mm_grasp)
 
 usage() {
-  echo "usage: $0 [gpu|robot|all] [--build] [--dry-run]" >&2
+  echo "usage: $0 [gpu|robot|all] [--build] [--test] [--dry-run]" >&2
   exit 1
 }
 
 target=all
 build=false
+test=false
 dry_run=()
 for arg in "$@"; do
   case "$arg" in
     gpu|robot|all) target=$arg ;;
     --build) build=true ;;
+    --test) test=true ;;
     -n|--dry-run) dry_run=(--dry-run) ;;
     *) usage ;;
   esac
@@ -53,6 +55,20 @@ deploy() {
       && if [ -f .venv/bin/activate ]; then source .venv/bin/activate; \
          else echo 'no ~/$REMOTE_WS/.venv, run scripts/setup_venv.sh first' >&2; exit 1; fi \
       && colcon build --packages-select ${pkgs[*]}"
+  fi
+
+  if $test && [ ${#dry_run[@]} -eq 0 ]; then
+    local tests=()
+    for pkg in "${pkgs[@]}"; do
+      if [ -d "$ROOT/src/$pkg/test" ]; then tests+=("src/$pkg/test"); fi
+    done
+    echo "==> $name: pytest ${tests[*]}"
+    # The venv Python, so the tests see the same packages as the nodes.
+    # shellcheck disable=SC2029  # REMOTE_WS and tests are meant to expand locally
+    ssh "$host" "cd ~/$REMOTE_WS \
+      && source /opt/ros/jazzy/setup.bash && source .venv/bin/activate \
+      && source install/setup.bash \
+      && python -m pytest -q -p no:cacheprovider ${tests[*]}"
   fi
 }
 

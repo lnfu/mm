@@ -1,0 +1,12 @@
+# Lint and format settings for all packages under src/.
+# Not a pyproject.toml: colcon could take one at the root for a package.
+target-version = "py312"
+line-length = 88
+
+[lint]
+select = ["E", "F", "W", "I", "B"]
+# E501: the formatter sets the line length. B905: zip() lengths always match here.
+ignore = ["E501", "B905"]
+
+[lint.isort]
+known-first-party = ["mm_grasp", "mm_ik", "mm_interfaces", "mm_perception"]
