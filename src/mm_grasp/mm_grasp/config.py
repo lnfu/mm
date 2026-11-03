@@ -41,8 +41,14 @@ class GraspConfig:
     base_stage_arm: float = 0.35
     max_base_translation: float = 0.6  # m, per axis
     max_base_rotation_deg: float = 45.0
-    base_max_linear: float = 0.05  # m/s
-    base_max_angular: float = 0.2  # rad/s
+    # Hello Robot's sentry caps the base at 0.1 m/s while the arm is out (extended
+    # past 3 cm or lifted above 0.3 m), which is always the case while grasping.
+    base_max_linear: float = 0.1  # m/s
+    base_max_angular: float = 0.5  # rad/s
+    # Speed = gain * remaining distance (or angle), so the gain sets how long the
+    # base takes to creep over its last centimetres. Too high overshoots.
+    base_linear_gain: float = 2.0  # 1/s
+    base_angular_gain: float = 2.0  # 1/s
     # After each base move the object is detected again and the grasp replanned,
     # with the base allowed again: a first look near the image edge can be far off.
     max_base_moves: int = 3

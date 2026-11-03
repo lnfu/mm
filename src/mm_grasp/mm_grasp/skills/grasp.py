@@ -101,7 +101,10 @@ def run(goal: GraspGoal, cfg, ctx) -> np.ndarray:
         center,
         max_moves=cfg.max_base_moves,
         gains=BaseGains(
-            max_linear=cfg.base_max_linear, max_angular=cfg.base_max_angular
+            max_linear=cfg.base_max_linear,
+            max_angular=cfg.base_max_angular,
+            linear_gain=cfg.base_linear_gain,
+            angular_gain=cfg.base_angular_gain,
         ),
         settle_time=cfg.settle_time,
     )

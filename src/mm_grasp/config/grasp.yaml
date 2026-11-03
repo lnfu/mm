@@ -47,8 +47,10 @@ mm_grasp:
     max_base_translation: 0.6 # m, per axis
     max_base_rotation_deg: 45.0
 
-    base_max_linear: 0.05 # m/s, /cmd_vel closed loop on /wheel_odom
-    base_max_angular: 0.2 # rad/s
+    base_max_linear: 0.1 # m/s, /cmd_vel closed loop on /wheel_odom; sentry caps it at 0.1 while the arm is out
+    base_max_angular: 0.5 # rad/s
+    base_linear_gain: 2.0 # 1/s, speed = gain * remaining distance; too high overshoots
+    base_angular_gain: 2.0 # 1/s
     # Base moves allowed per grasp. After each one the object is detected again and
     # the grasp replanned (the base may move again), since a first look near the
     # image edge can be far off.
