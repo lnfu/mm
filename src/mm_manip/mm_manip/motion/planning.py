@@ -238,3 +238,37 @@ def _plan(solver, arm_solver, start, poses, posture, accept) -> GraspPlan:
         arm.append(joints)
 
     return GraspPlan(base, _arm_only(pre.joints), arm[:-1], arm[-1], poses)
+
+
+def solve_waypoints(
+    solver,
+    start: dict,
+    targets,
+    what: str = "waypoint",
+    accept_position_error=0.0,
+    accept_orientation_error=0.0,
+    postures=None,
+    partial: bool = False,
+) -> list:
+    """Joints for each target pose in turn, each solve warm-started from the last.
+
+    The targets are ee poses in base_link at the start (base joints are offsets
+    from there), so the result keeps the solver's base joints too.
+    postures: one posture dict (or None) per target, see IKSolver.solve.
+    Raises PlanningError naming the first unreachable target, or with partial
+    returns the joints up to it (possibly none).
+    """
+    accept = {
+        "accept_position_error": accept_position_error,
+        "accept_orientation_error": accept_orientation_error,
+    }
+    postures = postures or [None] * len(targets)
+    joints, path = start, []
+    for i, (target, posture) in enumerate(zip(targets, postures, strict=True)):
+        result = solver.solve(joints, target, posture=posture)
+        if partial and not _acceptable(result, **accept):
+            break
+        _check(result, f"{what} {i}", **accept)
+        joints = result.joints
+        path.append(joints)
+    return path

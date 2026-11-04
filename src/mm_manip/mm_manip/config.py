@@ -11,6 +11,7 @@ from typing import ClassVar
 from mm_ik.solver import ARM_JOINT_NAMES
 
 from .motion.trajectory import DEFAULT_MAX_STEP
+from .motion.velocity import DEFAULT_MAX_VELOCITY, DEFAULT_TOLERANCE
 
 WRIST_JOINTS = ["wrist_yaw_joint", "wrist_pitch_joint", "wrist_roll_joint"]
 
@@ -141,3 +142,43 @@ class GraspConfig(_Parameters):
     def base_dof_list(self) -> list:
         """base_dofs as a list, e.g. "x, y" -> ["x", "y"]."""
         return [d.strip() for d in self.base_dofs.split(",") if d.strip()]
+
+
+@dataclass(frozen=True)
+class ArticulateConfig(_Parameters):
+    """The articulate skill (open a door), read at the start of each goal."""
+
+    PREFIX: ClassVar[str] = "articulate"
+
+    start_pose: dict = field(
+        default_factory=lambda: dict.fromkeys(ARM_JOINT_NAMES, 0.0)
+    )
+
+    # Gemini Robotics-ER finds the handle and the door's corners (MODE_PROMPT).
+    gemini_model: str = "gemini-robotics-er-2-preview"
+    gemini_thinking_level: str = "low"  # minimal | low | medium | high: slower, better
+    gemini_timeout: float = 20.0  # s
+    image_max_side: int = 640  # px, the image is shrunk to this before upload
+    # The door plane is fitted to the depth inside the corner quad, shrunk by
+    # quad_shrink toward its center, within door_depth_band of the median depth.
+    quad_shrink: float = 0.15
+    door_depth_band: float = 0.15  # m
+    # The handle keypoint lands on the door plane; the handle sticks out by this.
+    handle_offset: float = 0.03  # m, MODE_PROMPT only
+
+    n_waypoints: int = 10  # on the opening arc, the grasp pose included
+    # The base (x, y, theta) moves during the arc where the arm alone cannot follow
+    # it. The arc is planned with the base's turn left to the IK, and held to each
+    # of these shares of the door's turn; the plan opening furthest wins.
+    base_turn_ratios: list = field(default_factory=lambda: [0.3, 0.5, 0.7])
+    max_base_translation: float = 0.6  # m, per axis
+    max_base_rotation_deg: float = 90.0
+    ik_accept_position_error: float = 0.01  # m
+    ik_accept_orientation_error_deg: float = 3.0
+
+    # Velocity paths (all articulate motions): m/s or rad/s per joint, base_x and
+    # base_y included, and how close each joint must end (m or rad).
+    path_max_velocity: dict = field(default_factory=lambda: dict(DEFAULT_MAX_VELOCITY))
+    path_tolerance: dict = field(default_factory=lambda: dict(DEFAULT_TOLERANCE))
+    tracking_gain: float = 2.0  # 1/s, 0 = feedforward only
+    path_min_segment: float = 0.3  # s, shortest time between two waypoints

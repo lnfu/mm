@@ -12,6 +12,7 @@ PURE = [
     "mm_manip.config",
     "mm_manip.errors",
     "mm_manip.transforms",
+    "mm_manip.skills.articulate",
     "mm_manip.skills.grasp",
     "mm_manip.skills.primitives",
     "mm_manip.motion.base_control",

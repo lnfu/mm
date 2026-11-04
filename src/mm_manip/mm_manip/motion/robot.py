@@ -8,6 +8,7 @@ mode is global to the driver):
   topic, so it always ends by commanding zero.
 """
 
+import math
 import threading
 import time
 
@@ -41,7 +42,14 @@ from .trajectory import (
     moving_joints,
     split_long_moves,
 )
-from .velocity import BASE_X, PathTracker, TrackingGains
+from .velocity import (
+    BASE_JOINTS,
+    BASE_THETA,
+    BASE_X,
+    BASE_Y,
+    PathTracker,
+    TrackingGains,
+)
 
 # Prismatic joints take a velocity on /joint_vel. stretch_driver turns a wrist
 # "velocity" v into move_by(v * duration) from the measured position, so for the
@@ -264,9 +272,10 @@ class Robot:
     def follow_path(self, points: list, should_cancel, gains: TrackingGains = None):
         """Move through `points` without stopping at them, and wait.
 
-        points: dicts keyed by IK joint names, and optionally BASE_X: the base's
-        forward travel (m) from where it is when the path starts (its heading is
-        not controlled). gains: path timing, tracking gain and arrival tolerances
+        points: dicts keyed by IK joint names, and optionally BASE_X, BASE_Y and
+        BASE_THETA: the base's travel (m) from where it is when the path starts,
+        along its x and y axes there, and its turn (rad) since then. A path with
+        base joints controls all three (the missing ones are held at 0). gains: path timing, tracking gain and arrival tolerances
         (per call, so a skill can read them from its parameters on every goal).
         The path starts from the measured joints and ends once
         every joint is within tolerance of the last point; everything is always
@@ -278,18 +287,22 @@ class Robot:
         if not points:
             raise ValueError("no waypoints")
         self._ensure_mode("velocity", should_cancel)
-        with_base = BASE_X in points[-1]
+        with_base = any(j in points[-1] for j in BASE_JOINTS)
+        if with_base:
+            points = [{**dict.fromkeys(BASE_JOINTS, 0.0), **p} for p in points]
         base_start = self._odom_pose(max_age=0.5) if with_base else None
 
         def measured():
             joints = self.arm_joints(max_age=0.5)
             if with_base:
                 pose = self._odom_pose(max_age=0.5)
-                joints[BASE_X] = displacement(base_start, pose)[0]
+                joints[BASE_X], joints[BASE_Y], joints[BASE_THETA] = displacement(
+                    base_start, pose
+                )
             return joints
 
         tracker = PathTracker(measured(), points, gains or TrackingGains())
-        arm = [j for j in tracker.joints if j != BASE_X]
+        arm = [j for j in tracker.joints if j not in BASE_JOINTS]
         deadline = tracker.duration + self._path_settle_timeout
         t0 = time.monotonic()
         self._arm_moving = True
@@ -314,7 +327,15 @@ class Robot:
                     }
                 )
                 if with_base:
-                    self._publish_twist(velocity[BASE_X], 0.0, 0.0)
+                    # The path's (x, y) is in the starting base frame, /cmd_vel in
+                    # the current one, turned by base_theta since the start.
+                    turn = current[BASE_THETA]
+                    vx, vy = velocity[BASE_X], velocity[BASE_Y]
+                    self._publish_twist(
+                        math.cos(turn) * vx + math.sin(turn) * vy,
+                        -math.sin(turn) * vx + math.cos(turn) * vy,
+                        velocity[BASE_THETA],
+                    )
                 time.sleep(self._period)
         finally:
             self._publish_joints(dict.fromkeys(ARM_JOINT_NAMES, 0.0))

@@ -1,7 +1,7 @@
 import pytest
 
 from mm_ik.solver import ARM_JOINT_NAMES
-from mm_manip.motion.velocity import BASE_X, PathTracker, TrackingGains
+from mm_manip.motion.velocity import BASE_JOINTS, PathTracker, TrackingGains
 
 GAINS = TrackingGains(
     max_velocity={"lift": 0.1, "yaw": 1.0},
@@ -74,5 +74,5 @@ def test_needs_a_waypoint():
 
 def test_default_gains_cover_the_arm_and_the_base():
     gains = TrackingGains()
-    for joint in [*ARM_JOINT_NAMES, BASE_X]:
+    for joint in [*ARM_JOINT_NAMES, *BASE_JOINTS]:
         assert joint in gains.max_velocity and joint in gains.tolerance

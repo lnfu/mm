@@ -32,6 +32,16 @@ class DoorType(IntEnum):
     PRISMATIC = 3  # drawer
 
 
+class HandleType(IntEnum):
+    """Same values as the HANDLE_* in mm_interfaces/action/Articulate result."""
+
+    UNKNOWN = 0
+    BAR_VERTICAL = 1
+    BAR_HORIZONTAL = 2
+    KNOB = 3  # a single protruding knob
+    RECESSED = 4  # recessed or none (push to open)
+
+
 _TYPE_NAMES = {
     "revolute_left": DoorType.REVOLUTE_LEFT,
     "revolute_right": DoorType.REVOLUTE_RIGHT,
@@ -40,11 +50,15 @@ _TYPE_NAMES = {
 }
 
 
+_HANDLE_NAMES = {h.name.lower(): h for h in HandleType}
+
+
 @dataclass(frozen=True)
 class DoorKeypoints:
     """Pixel (u, v) coordinates in the image Gemini was given."""
 
     type: DoorType
+    handle_type: HandleType
     handle: tuple
     corners: dict  # CORNERS name -> (u, v)
 
@@ -100,11 +114,14 @@ def build_prompt(target: str) -> str:
     return f"""Find {target} in the image.
 Return only JSON, with no other text:
 {{"type": "revolute_left" | "revolute_right" | "prismatic" | "unknown",
+  "handle_type": "bar_vertical" | "bar_horizontal" | "knob" | "recessed" | "unknown",
   "handle": [y, x],
   "top_left": [y, x], "top_right": [y, x],
   "bottom_left": [y, x], "bottom_right": [y, x]}}
 type: revolute_left if the door's hinge is on its left side in the image,
 revolute_right if on its right side, prismatic for a drawer.
+handle_type: bar_vertical or bar_horizontal for a bar handle (by its long axis),
+knob for a single protruding knob, recessed for a recessed handle or none.
 handle: the center of its handle. top_left ... bottom_right: the corners of the
 door's front panel (the moving part), as they appear in the image.
 Points are [y, x], normalized to 0-1000."""
@@ -125,6 +142,9 @@ def parse_response(text: str, width: int, height: int) -> DoorKeypoints:
     door_type = _TYPE_NAMES.get(str(data.get("type", "unknown")).lower())
     if door_type is None:
         raise ValueError(f"unknown door type {data.get('type')!r}")
+    handle_type = _HANDLE_NAMES.get(str(data.get("handle_type", "unknown")).lower())
+    if handle_type is None:
+        raise ValueError(f"unknown handle type {data.get('handle_type')!r}")
 
     def pixel(name):
         point = data.get(name)
@@ -138,7 +158,10 @@ def parse_response(text: str, width: int, height: int) -> DoorKeypoints:
         return (x / 1000.0 * width, y / 1000.0 * height)
 
     return DoorKeypoints(
-        door_type, pixel("handle"), {name: pixel(name) for name in CORNERS}
+        door_type,
+        handle_type,
+        pixel("handle"),
+        {name: pixel(name) for name in CORNERS},
     )
 
 
@@ -259,6 +282,7 @@ class Door:
     """A door in one frame (the camera's, or the base's after transform())."""
 
     type: DoorType
+    handle_type: HandleType
     handle: np.ndarray  # (3,)
     corners: dict  # CORNERS name -> (3,)
     normal: np.ndarray  # (3,) unit, out of the door toward the camera
@@ -267,6 +291,7 @@ class Door:
         rotation, translation = np.asarray(rotation), np.asarray(translation)
         return Door(
             self.type,
+            self.handle_type,
             rotation @ self.handle + translation,
             {n: rotation @ p + translation for n, p in self.corners.items()},
             rotation @ self.normal,
@@ -294,6 +319,7 @@ def locate_door(
     on_plane = intersect_plane(pixel_rays(pixels, K), normal, d)
     return Door(
         keypoints.type,
+        keypoints.handle_type,
         on_plane[0],
         dict(zip(CORNERS, on_plane[1:], strict=True)),
         normal,

@@ -10,6 +10,7 @@ from mm_manip.perception.door import (
     DoorKeypoints,
     DoorType,
     GeminiDoorKeypoints,
+    HandleType,
     build_prompt,
     encode_jpeg,
     fit_plane,
@@ -27,6 +28,7 @@ W, H = 640, 480
 def answer(**overrides):
     data = {
         "type": "revolute_left",
+        "handle_type": "bar_vertical",
         "handle": [500, 750],
         "top_left": [100, 250],
         "top_right": [100, 750],
@@ -44,6 +46,7 @@ def test_prompt_names_the_target():
 def test_parse_scales_y_x_to_pixels():
     keypoints = parse_response(answer(), W, H)
     assert keypoints.type == DoorType.REVOLUTE_LEFT
+    assert keypoints.handle_type == HandleType.BAR_VERTICAL
     assert keypoints.handle == pytest.approx((0.75 * W, 0.5 * H))
     assert keypoints.corners["top_left"] == pytest.approx((0.25 * W, 0.1 * H))
     assert set(keypoints.corners) == set(CORNERS)
@@ -72,6 +75,7 @@ def test_parse_door_types(name, door_type):
         "no idea",
         "[1, 2]",
         answer(type="sliding"),
+        answer(handle_type="lever"),
         answer(handle=[1]),
         answer(top_left="here"),
         json.dumps({"type": "prismatic", "handle": [1, 2]}),  # no corners
@@ -85,6 +89,16 @@ def test_parse_rejects_other_answers(text):
 def test_door_types_match_the_action():
     # Articulate.action result: TYPE_UNKNOWN=0, REVOLUTE_LEFT=1, REVOLUTE_RIGHT=2, PRISMATIC=3
     assert [int(t) for t in DoorType] == [0, 1, 2, 3]
+    # HANDLE_UNKNOWN=0, BAR_VERTICAL=1, BAR_HORIZONTAL=2, KNOB=3, RECESSED=4
+    assert [int(h) for h in HandleType] == [0, 1, 2, 3, 4]
+
+
+@pytest.mark.parametrize(
+    "name, handle_type",
+    [("knob", HandleType.KNOB), ("bar_horizontal", HandleType.BAR_HORIZONTAL)],
+)
+def test_parse_handle_types(name, handle_type):
+    assert parse_response(answer(handle_type=name), W, H).handle_type == handle_type
 
 
 def test_fit_plane_ignores_a_protruding_handle():
@@ -153,7 +167,9 @@ def wall_scene(z_door=0.8, z_bg=2.0):
         "bottom_left": (160.0, 432.0),
         "bottom_right": (480.0, 432.0),
     }
-    return depth, DoorKeypoints(DoorType.REVOLUTE_LEFT, (440.0, 240.0), corners)
+    return depth, DoorKeypoints(
+        DoorType.REVOLUTE_LEFT, HandleType.KNOB, (440.0, 240.0), corners
+    )
 
 
 def test_locate_door_puts_corners_on_the_panel_despite_edge_depth():
@@ -177,6 +193,7 @@ def test_locate_door_without_depth_raises():
 def test_door_transform():
     door = Door(
         DoorType.REVOLUTE_RIGHT,
+        HandleType.KNOB,
         np.array([1.0, 0, 0]),
         {n: np.zeros(3) for n in CORNERS},
         np.array([0, 0, 1.0]),
@@ -187,6 +204,7 @@ def test_door_transform():
     assert moved.corners["top_left"] == pytest.approx([0, 0, 1.0])
     assert moved.normal == pytest.approx([0, 0, 1.0])  # direction: not translated
     assert moved.type == DoorType.REVOLUTE_RIGHT
+    assert moved.handle_type == HandleType.KNOB
 
 
 def test_encode_jpeg_shrinks_to_max_side():

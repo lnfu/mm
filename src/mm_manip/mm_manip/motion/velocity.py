@@ -1,8 +1,9 @@
 """Follow a path of joint waypoints with velocity commands. No ROS.
 
 The path goes straight (in joint space) from waypoint to waypoint without stopping
-at them. A joint can also be the base: "base_x", its forward travel (m) since the
-path started. Each segment is timed so no joint exceeds its max velocity and all joints
+at them. A joint can also be the base: "base_x" and "base_y", its travel (m) since
+the path started along the base's x and y axes at the start, and "base_theta", its
+turn (rad) since then. Each segment is timed so no joint exceeds its max velocity and all joints
 arrive together. At every control step the joints are compared with where the path
 says they should be by now: the command is the path's own velocity plus a
 correction proportional to that error.
@@ -12,10 +13,15 @@ from dataclasses import dataclass, field
 from itertools import pairwise
 
 BASE_X = "base_x"
+BASE_Y = "base_y"
+BASE_THETA = "base_theta"
+BASE_JOINTS = (BASE_X, BASE_Y, BASE_THETA)
 
-# m/s for lift, arm and base_x, rad/s for the wrist.
+# m/s for lift, arm and the base, rad/s for the wrist and the base's turn.
 DEFAULT_MAX_VELOCITY = {
     BASE_X: 0.05,
+    BASE_Y: 0.05,
+    BASE_THETA: 0.2,
     "lift_joint": 0.08,
     "arm_joint": 0.08,
     "wrist_yaw_joint": 0.6,
@@ -25,6 +31,8 @@ DEFAULT_MAX_VELOCITY = {
 # How close each joint must end to the last waypoint (m or rad).
 DEFAULT_TOLERANCE = {
     BASE_X: 0.01,
+    BASE_Y: 0.01,
+    BASE_THETA: 0.02,
     "lift_joint": 0.003,
     "arm_joint": 0.003,
     "wrist_yaw_joint": 0.01,
