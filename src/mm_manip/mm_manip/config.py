@@ -173,6 +173,9 @@ class ArticulateConfig(_Parameters):
     base_turn_ratios: list = field(default_factory=lambda: [0.3, 0.5, 0.7])
     max_base_translation: float = 0.6  # m, per axis
     max_base_rotation_deg: float = 90.0
+    # When the handle is out of the arm's reach, the base moves first (with the arm,
+    # in one velocity path) so the arm grasps near this extension (max 0.52).
+    approach_arm: float = 0.25
     ik_accept_position_error: float = 0.01  # m
     ik_accept_orientation_error_deg: float = 3.0
 

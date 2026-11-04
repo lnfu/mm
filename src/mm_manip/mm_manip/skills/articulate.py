@@ -19,7 +19,7 @@ import pinocchio as pin
 
 from mm_ik.solver import ARM_JOINT_NAMES, IKSolver
 
-from ..motion.planning import PlanningError, solve_waypoints
+from ..motion.planning import PlanningError, reach, solve_waypoints
 from ..motion.velocity import BASE_JOINTS, BASE_THETA, BASE_X, BASE_Y, TrackingGains
 from ..perception.door import Door, DoorType, HandleType
 from .primitives import OutOfReach
@@ -33,6 +33,10 @@ Z = np.array([0.0, 0.0, 1.0])
 BASE_TRANSLATION_COST = 0.1
 FREE_TURN_COST = 1e-3
 PRESCRIBED_TURN_COST = 1.0
+# Reaching the handle (as grasp's base stage): the base translates cheaply and
+# does not turn, and the arm is held near approach_arm.
+APPROACH_ARM_POSTURE_COST = 1e-2
+APPROACH_TRANSLATION_COST = 1e-4
 
 # Wrist roll per handle type. The gripper closes along grasp_center_link y, which
 # is horizontal at roll 0: right for a vertical bar, and any way works for a knob.
@@ -69,8 +73,9 @@ class ArticulateGoal:
 
 @dataclass(frozen=True)
 class ArcPlan:
-    grasp: dict  # arm joints with the gripper on the handle
-    path: list  # arm + base joints along the arc, after the grasp
+    grasp: dict  # arm joints with the gripper on the handle, and the base motion
+    # (base_x/base_y/base_theta) getting there; {} of it when the arm alone reaches
+    path: list  # arm + base joints along the arc, from where the grasp leaves the base
     opened: float  # rad the path opens the door (may be short of the arc's)
     strategy: str  # which base-turn strategy won, for the log
     base_travel: float = field(default=0.0)  # m, the most the base strays
@@ -145,9 +150,12 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
         f"({plan.strategy}); base ends at ({end[BASE_X]:.2f}, {end[BASE_Y]:.2f}) m, "
         f"{np.rad2deg(end[BASE_THETA]):.0f} deg"
     )
+    approach = {j: round(plan.grasp[j], 3) for j in BASE_JOINTS if j in plan.grasp}
+    if approach:
+        ctx.log.info(f"base moves to reach the handle: {approach}")
     outcome = Outcome(door, plan.opened, asked)
     if shared.dry_run:
-        ctx.observer.ghost([plan.grasp] + [_arm(p) for p in plan.path])
+        ctx.observer.ghost([_arm(plan.grasp)] + [_arm(p) for p in plan.path])
         return outcome
 
     ctx.phase(Phase.APPROACHING)
@@ -242,9 +250,11 @@ def opening_arc(door: Door, angle: float, n_waypoints: int, roll: float = 0.0) -
 def plan_arc(arc: Arc, current: dict, cfg, shared, urdf) -> ArcPlan:
     """The best plan for the arc, see the module docstring.
 
-    The handle is reached with the arm alone (OutOfReach otherwise). The arc is
-    solved from there with the base free; base_x/base_y/base_theta in the path
-    are its motion from where it is when the gripper is on the handle.
+    The handle is reached with the arm alone if it can, else with the base moving
+    too, the arm then near approach_arm to leave room for the arc (OutOfReach if
+    neither does). The base motion trusts odometry: the door is not looked at
+    again. The arc is solved from the grasp with the base free; base_x/base_y/
+    base_theta in the path are its motion from where it is at the grasp.
     Raises PlanningError if no strategy gets past the grasp.
     """
     accept = {
@@ -252,24 +262,25 @@ def plan_arc(arc: Arc, current: dict, cfg, shared, urdf) -> ArcPlan:
         "accept_orientation_error": np.deg2rad(cfg.ik_accept_orientation_error_deg),
     }
     frames = {"ee_frame": shared.ee_frame, "base_frame": shared.base_frame}
-    reach, turn = cfg.max_base_translation, np.deg2rad(cfg.max_base_rotation_deg)
+    travel, turn = cfg.max_base_translation, np.deg2rad(cfg.max_base_rotation_deg)
     limits = {
-        "base_x_joint": (-reach, reach),
-        "base_y_joint": (-reach, reach),
+        "base_x_joint": (-travel, travel),
+        "base_y_joint": (-travel, travel),
         "base_theta_joint": (-turn, turn),
     }
 
-    def base_solver(turn_cost):
+    def base_solver(turn_cost, translation_cost=BASE_TRANSLATION_COST, **kwargs):
         return IKSolver(
             urdf,
             ("x", "y", "theta"),
             joint_limits=limits,
             posture_costs={
-                BASE_X: BASE_TRANSLATION_COST,
-                BASE_Y: BASE_TRANSLATION_COST,
+                BASE_X: translation_cost,
+                BASE_Y: translation_cost,
                 BASE_THETA: turn_cost,
             },
             **frames,
+            **kwargs,
         )
 
     try:
@@ -278,17 +289,30 @@ def plan_arc(arc: Arc, current: dict, cfg, shared, urdf) -> ArcPlan:
             base_solver(FREE_TURN_COST),
             base_solver(PRESCRIBED_TURN_COST),
         )
+        approach = base_solver(
+            PRESCRIBED_TURN_COST,
+            APPROACH_TRANSLATION_COST,
+            posture_cost=APPROACH_ARM_POSTURE_COST,
+        )
     except ValueError as e:
         raise ArticulateFailed(f"cannot build IK model: {e}") from e
 
     try:
-        (grasp,) = solve_waypoints(
-            arm_solver, current, arc.poses[:1], "handle", **accept
+        base, grasp = reach(
+            arm_solver,
+            current,
+            arc.poses[0],
+            base_solver=approach,
+            base_posture={"arm_joint": cfg.approach_arm, BASE_THETA: 0.0},
+            **accept,
         )
     except PlanningError as e:
-        raise OutOfReach(f"handle out of arm reach: {e}") from e
+        raise OutOfReach(f"handle out of reach: {e}") from e
+    # The arc as seen from the base after it moved to the grasp.
+    moved = approach.base_motion({**grasp, **base})
     start = {**grasp, **dict.fromkeys(BASE_JOINTS, 0.0)}
-    targets, angles = arc.poses[1:], arc.angles[1:]
+    targets = [moved.actInv(pose) for pose in arc.poses[1:]]
+    angles = arc.angles[1:]
 
     candidates = [("base turn free", free, None)] + [
         (
@@ -310,7 +334,7 @@ def plan_arc(arc: Arc, current: dict, cfg, shared, urdf) -> ArcPlan:
         raise PlanningError("no strategy opens the door past the grasp")
     n, _, name, path, travel = max(plans, key=lambda plan: plan[:2])
     return ArcPlan(
-        _arm(grasp),
+        {**grasp, **base},
         [{**_arm(p), **{j: p[j] for j in BASE_JOINTS}} for p in path],
         float(angles[n - 1]),
         name,

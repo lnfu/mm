@@ -102,6 +102,7 @@ mm_manip:
       base_turn_ratios: [0.3, 0.5, 0.7]
       max_base_translation: 0.6 # m, per axis
       max_base_rotation_deg: 90.0
+      approach_arm: 0.25 # m, arm extension at the grasp when the base has to move
       ik_accept_position_error: 0.01
       ik_accept_orientation_error_deg: 3.0
 

@@ -208,6 +208,16 @@ def test_opens_a_door_given_by_points(urdf, handle, hinge_dy):
     assert 0 < outcome.opened <= outcome.asked == pytest.approx(np.pi / 2)
 
 
+def test_far_handle_moves_the_base_with_the_arm(urdf, handle):
+    cfg, shared, ctx = make_case(urdf)
+    far = handle + [0.3, 0.0, 0.0]  # 30 cm beyond the arm's reach from START
+    articulate.run(point_goal(far, -0.30), cfg, shared, ctx)
+    _, (grasp,), arc = ctx.robot.paths
+    assert grasp["base_x"] > 0.1  # toward the door, in the same path as the arm
+    assert grasp["arm_joint"] == pytest.approx(cfg.approach_arm, abs=0.1)
+    assert len(arc) >= 1
+
+
 def test_dry_run_only_plans(urdf, handle):
     cfg, shared, ctx = make_case(urdf, dry_run=True)
     articulate.run(point_goal(handle, 0.30), cfg, shared, ctx)
