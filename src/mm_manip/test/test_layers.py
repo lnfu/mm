@@ -1,6 +1,7 @@
 """The pure modules must not pull in ROS, so the grasp logic stays testable anywhere.
 
-ROS lives in manipulation_server, scene, motion/robot and perception/{locator,snapshot}.
+ROS lives in manipulation_server, scene, motion/robot and
+perception/{locator,door_locator,snapshot}.
 A new module goes in PURE unless it talks to ROS.
 """
 
@@ -17,6 +18,8 @@ PURE = [
     "mm_manip.motion.planning",
     "mm_manip.motion.trajectory",
     "mm_manip.motion.velocity",
+    "mm_manip.perception.door",
+    "mm_manip.perception.gemini",
     "mm_manip.perception.images",
     "mm_manip.perception.localize",
 ]
