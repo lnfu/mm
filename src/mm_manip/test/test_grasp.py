@@ -1,11 +1,11 @@
-from dataclasses import replace
+from dataclasses import fields, replace
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from mm_ik.solver import IKSolver
-from mm_manip.config import GraspConfig
+from mm_manip.config import GraspConfig, ServerConfig
 from mm_manip.errors import Canceled
 from mm_manip.skills import grasp
 from mm_manip.skills.grasp import GraspGoal, Phase, object_width
@@ -112,12 +112,16 @@ def make_case(urdf, world, errors=(), cancel_after=None, **cfg):
 
     ctx = Context(robot, locator, observer, FakeLog(), should_cancel)
     defaults = dict(dry_run=False, start_pose=START, base_dofs="x,y", settle_time=0.0)
-    return replace(GraspConfig(), **{**defaults, **cfg}), ctx
+    values = {**defaults, **cfg}
+    shared_names = {f.name for f in fields(ServerConfig)}
+    shared = {k: v for k, v in values.items() if k in shared_names}
+    own = {k: v for k, v in values.items() if k not in shared_names}
+    return replace(GraspConfig(), **own), replace(ServerConfig(), **shared), ctx
 
 
 def test_reachable_object_needs_no_base(urdf, reachable):
-    cfg, ctx = make_case(urdf, reachable)
-    center = grasp.run(GraspGoal(prompt="can"), cfg, ctx)
+    cfg, shared, ctx = make_case(urdf, reachable)
+    center = grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert ctx.robot.base_moves == []
     assert ctx.locator.looks == 1
     assert len(ctx.robot.arm_moves) == 3  # start pose, pre-grasp + approach, lift
@@ -132,8 +136,8 @@ def test_reachable_object_needs_no_base(urdf, reachable):
 
 
 def test_far_object_moves_the_base_once_and_looks_again(urdf, reachable):
-    cfg, ctx = make_case(urdf, reachable + [0.0, -0.30, 0.0])
-    grasp.run(GraspGoal(prompt="can"), cfg, ctx)
+    cfg, shared, ctx = make_case(urdf, reachable + [0.0, -0.30, 0.0])
+    grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert len(ctx.robot.base_moves) == 1
     assert ctx.locator.looks == 2
 
@@ -142,8 +146,10 @@ def test_wrong_first_look_gets_a_second_base_move(urdf, reachable):
     """2026-11-02: a can far to the right, first seen 15 cm too far left (cut off at
     the image edge). The first base move leaves it out of arm reach; the base must
     move again instead of failing."""
-    cfg, ctx = make_case(urdf, reachable + [0.0, -0.30, 0.0], errors=[[0, 0.15, 0.07]])
-    grasp.run(GraspGoal(prompt="can"), cfg, ctx)
+    cfg, shared, ctx = make_case(
+        urdf, reachable + [0.0, -0.30, 0.0], errors=[[0, 0.15, 0.07]]
+    )
+    grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert len(ctx.robot.base_moves) == 2
     assert ctx.locator.looks == 3
     end = ctx.robot.to_base(reachable + [0.0, -0.30, 0.0])
@@ -151,45 +157,45 @@ def test_wrong_first_look_gets_a_second_base_move(urdf, reachable):
 
 
 def test_out_of_reach_after_max_base_moves(urdf, reachable):
-    cfg, ctx = make_case(
+    cfg, shared, ctx = make_case(
         urdf,
         reachable + [0.0, -0.30, 0.0],
         errors=[[0, 0.15, 0.07]],
         max_base_moves=1,
     )
     with pytest.raises(OutOfReach):
-        grasp.run(GraspGoal(prompt="can"), cfg, ctx)
+        grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert len(ctx.robot.base_moves) == 1
 
 
 def test_point_goal_uses_no_camera(urdf, reachable):
-    cfg, ctx = make_case(urdf, reachable)
+    cfg, shared, ctx = make_case(urdf, reachable)
     far = reachable + [0.0, -0.30, 0.0]
-    center = grasp.run(GraspGoal(point=far), cfg, ctx)
+    center = grasp.run(GraspGoal(point=far), cfg, shared, ctx)
     assert ctx.locator.looks == 0
     assert len(ctx.robot.base_moves) == 1
     assert np.allclose(center, ctx.robot.to_base(far), atol=1e-3)
 
 
 def test_dry_run_moves_nothing(urdf, reachable):
-    cfg, ctx = make_case(urdf, reachable + [0.0, -0.30, 0.0], dry_run=True)
-    grasp.run(GraspGoal(prompt="can"), cfg, ctx)
+    cfg, shared, ctx = make_case(urdf, reachable + [0.0, -0.30, 0.0], dry_run=True)
+    grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert ctx.robot.arm_moves == [] and ctx.robot.base_moves == []
     assert len(ctx.observer.ghosts) == 1
 
 
 def test_cancel_stops_at_the_next_phase(urdf, reachable):
-    cfg, ctx = make_case(urdf, reachable, cancel_after=1)
+    cfg, shared, ctx = make_case(urdf, reachable, cancel_after=1)
     with pytest.raises(Canceled):
-        grasp.run(GraspGoal(prompt="can"), cfg, ctx)
+        grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert ctx.observer.phases == [Phase.MOVING_TO_START]
     assert ctx.locator.looks == 0
 
 
 def test_too_wide_object_is_rejected(urdf, reachable):
-    cfg, ctx = make_case(urdf, reachable, gripper_max_opening=0.05)
+    cfg, shared, ctx = make_case(urdf, reachable, gripper_max_opening=0.05)
     with pytest.raises(grasp.GraspFailed, match="wider than the gripper"):
-        grasp.run(GraspGoal(prompt="can"), cfg, ctx)
+        grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert len(ctx.robot.arm_moves) == 1  # only the start pose
 
 

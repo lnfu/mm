@@ -20,7 +20,7 @@ from sensor_msgs.msg import JointState
 
 from mm_interfaces.action import Grasp
 
-from .config import GraspConfig
+from .config import GraspConfig, ServerConfig
 from .errors import Canceled
 from .motion.planning import PlanningError
 from .motion.robot import MotionError, Robot
@@ -39,8 +39,9 @@ assert all(getattr(Grasp.Feedback, p.name) == p for p in Phase), (
 class ManipulationServer(Node):
     def __init__(self):
         super().__init__("mm_manip")
+        ServerConfig.declare(self)
         GraspConfig.declare(self)
-        cfg = GraspConfig.from_node(self)
+        cfg = ServerConfig.from_node(self)
 
         group = ReentrantCallbackGroup()
         self._robot = Robot(
@@ -98,6 +99,7 @@ class ManipulationServer(Node):
     def _execute(self, goal_handle):
         result = Grasp.Result()
         cfg = GraspConfig.from_node(self)
+        shared = ServerConfig.from_node(self)
 
         def should_cancel():
             return goal_handle.is_cancel_requested
@@ -105,20 +107,20 @@ class ManipulationServer(Node):
         ctx = Context(
             robot=self._robot,
             locator=self._locator,
-            observer=_Observer(self, goal_handle, cfg.base_frame, should_cancel),
+            observer=_Observer(self, goal_handle, shared.base_frame, should_cancel),
             log=self.get_logger(),
             should_cancel=should_cancel,
         )
         try:
-            center = grasp.run(self._goal(goal_handle.request), cfg, ctx)
+            center = grasp.run(self._goal(goal_handle.request), cfg, shared, ctx)
             result.success = True
-            if cfg.dry_run:
+            if shared.dry_run:
                 result.message = "dry_run: plan ok"
-            elif cfg.use_gripper:
+            elif shared.use_gripper:
                 result.message = "grasped"
             else:
                 result.message = "motion done (use_gripper is false, gripper not used)"
-            result.grasped_point = self._point_stamped(cfg.base_frame, center)
+            result.grasped_point = self._point_stamped(shared.base_frame, center)
             goal_handle.succeed()
         except Canceled:
             self._robot.stop()

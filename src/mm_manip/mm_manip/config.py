@@ -1,9 +1,12 @@
-"""Grasp server parameters
+"""Server parameters.
 
-Dict fields are ROS parameters named `<field>.<joint>`.
+ServerConfig is shared by every skill and named at the top level; each skill's own
+parameters live under its prefix, e.g. `grasp.lift_height`. Dict fields are ROS
+parameters named `<field>.<key>`, e.g. `grasp.start_pose.lift_joint`.
 """
 
 from dataclasses import asdict, dataclass, field
+from typing import ClassVar
 
 from mm_ik.solver import ARM_JOINT_NAMES
 
@@ -12,15 +15,84 @@ from .motion.trajectory import DEFAULT_MAX_STEP
 WRIST_JOINTS = ["wrist_yaw_joint", "wrist_pitch_joint", "wrist_roll_joint"]
 
 
+class _Parameters:
+    """declare()/from_node() for a frozen dataclass, under the class's PREFIX."""
+
+    PREFIX: ClassVar[str] = ""
+
+    @classmethod
+    def _name(cls, name: str) -> str:
+        return f"{cls.PREFIX}.{name}" if cls.PREFIX else name
+
+    @classmethod
+    def declare(cls, node) -> None:
+        """Declare every parameter on `node`, with the defaults of the dataclass."""
+        for name, default in asdict(cls()).items():
+            if isinstance(default, dict):
+                for key, value in default.items():
+                    node.declare_parameter(cls._name(f"{name}.{key}"), value)
+            else:
+                node.declare_parameter(cls._name(name), default)
+
+    @classmethod
+    def from_node(cls, node):
+        """The current values of the parameters declared by declare()."""
+        values = {}
+        for name, default in asdict(cls()).items():
+            if isinstance(default, dict):
+                values[name] = {
+                    key: node.get_parameter(cls._name(f"{name}.{key}")).value
+                    for key in default
+                }
+            else:
+                values[name] = node.get_parameter(cls._name(name)).value
+        return cls(**values)
+
+
 @dataclass(frozen=True)
-class GraspConfig:
-    """Two kinds of parameters, see the section comments below."""
+class ServerConfig(_Parameters):
+    """Shared by every skill. Two kinds of parameters, see the section comments."""
 
     # ---- Read at the start of each goal: `ros2 param set` applies to the next goal.
 
     dry_run: bool = True  # plan + RViz only, nothing moves
-    base_dofs: str = ""  # "" | "x" | "x,y" | "x,y,theta"
     ee_frame: str = "grasp_center_link"
+    settle_time: float = 0.3  # s to wait after the arm stops, before detecting
+    # TODO[lnfu] the gripper mechanism is broken; open/close/check are skipped
+    # while use_gripper is false and the arm motions still run.
+    use_gripper: bool = False
+
+    # ---- Read once at startup to build Robot, Scene and Locator: restart to change.
+
+    base_frame: str = "base_link"
+    fjt_action: str = "/follow_joint_trajectory"  # served by /stretch_driver
+    # IK joint name -> name the driver uses (the same names on Stretch 4).
+    driver_joint: dict = field(default_factory=lambda: {n: n for n in ARM_JOINT_NAMES})
+    # If stretch_driver's action_timeout is at least this long, long moves are not
+    # split into max_step pieces (fewer stops).
+    no_split_action_timeout: float = 10.0
+    max_step: dict = field(default_factory=lambda: dict(DEFAULT_MAX_STEP))
+
+    detect_service: str = "/mm_perception/detect"
+    service_timeout: float = 5.0
+    # The driver aligns depth to the right camera (setDepthAlign(right)) and
+    # publishes it only as compressedDepth, so the color image is the right one.
+    color_topic: str = "/cameras_gripper/right/image_raw/compressed"
+    depth_topic: str = "/cameras_gripper/stereo/image_raw/compressedDepth"
+    depth_compressed: bool = True
+    camera_info_topic: str = "/cameras_gripper/right/camera_info"
+    sync_slop: float = 0.02  # s, max stamp difference within a color/depth/info triple
+    snapshot_timeout: float = 2.0
+    depth_band: float = 0.05  # m, drop mask pixels this far from the median depth
+
+
+@dataclass(frozen=True)
+class GraspConfig(_Parameters):
+    """The grasp skill, read at the start of each goal."""
+
+    PREFIX: ClassVar[str] = "grasp"
+
+    base_dofs: str = ""  # "" | "x" | "x,y" | "x,y,theta"
     start_pose: dict = field(
         default_factory=lambda: dict.fromkeys(ARM_JOINT_NAMES, 0.0)
     )
@@ -56,61 +128,10 @@ class GraspConfig:
     ik_accept_position_error: float = 0.015  # m
     ik_accept_orientation_error_deg: float = 3.0
 
-    settle_time: float = 0.3  # s to wait after the arm stops, before detecting
-
-    # TODO[lnfu] the gripper mechanism is broken; open/close/check are skipped
-    # while use_gripper is false and the arm motions still run.
-    use_gripper: bool = False
     gripper_max_opening: float = 0.10  # TODO[lnfu] measure
     closed_threshold: float = 0.0  # TODO[lnfu] from the empty vs holding test
-
-    # ---- Read once at startup to build Robot, Scene and Locator: restart to change.
-
-    base_frame: str = "base_link"
-    fjt_action: str = "/follow_joint_trajectory"  # served by /stretch_driver
-    # IK joint name -> name the driver uses (the same names on Stretch 4).
-    driver_joint: dict = field(default_factory=lambda: {n: n for n in ARM_JOINT_NAMES})
-    # If stretch_driver's action_timeout is at least this long, long moves are not
-    # split into max_step pieces (fewer stops).
-    no_split_action_timeout: float = 10.0
-    max_step: dict = field(default_factory=lambda: dict(DEFAULT_MAX_STEP))
-
-    detect_service: str = "/mm_perception/detect"
-    service_timeout: float = 5.0
-    # The driver aligns depth to the right camera (setDepthAlign(right)) and
-    # publishes it only as compressedDepth, so the color image is the right one.
-    color_topic: str = "/cameras_gripper/right/image_raw/compressed"
-    depth_topic: str = "/cameras_gripper/stereo/image_raw/compressedDepth"
-    depth_compressed: bool = True
-    camera_info_topic: str = "/cameras_gripper/right/camera_info"
-    sync_slop: float = 0.02  # s, max stamp difference within a color/depth/info triple
-    snapshot_timeout: float = 2.0
-    depth_band: float = 0.05  # m, drop mask pixels this far from the median depth
 
     @property
     def base_dof_list(self) -> list:
         """base_dofs as a list, e.g. "x, y" -> ["x", "y"]."""
         return [d.strip() for d in self.base_dofs.split(",") if d.strip()]
-
-    @classmethod
-    def declare(cls, node) -> None:
-        """Declare every parameter on `node`, with the defaults above."""
-        for name, default in asdict(cls()).items():
-            if isinstance(default, dict):
-                for key, value in default.items():
-                    node.declare_parameter(f"{name}.{key}", value)
-            else:
-                node.declare_parameter(name, default)
-
-    @classmethod
-    def from_node(cls, node) -> "GraspConfig":
-        """The current values of the parameters declared by declare()."""
-        values = {}
-        for name, default in asdict(cls()).items():
-            if isinstance(default, dict):
-                values[name] = {
-                    key: node.get_parameter(f"{name}.{key}").value for key in default
-                }
-            else:
-                values[name] = node.get_parameter(name).value
-        return cls(**values)

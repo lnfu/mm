@@ -32,23 +32,25 @@ class GraspGoal:
     point: np.ndarray | None = None  # grasp here (base frame), without the camera
 
 
-def run(goal: GraspGoal, cfg, ctx) -> np.ndarray:
+def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
     """Grasp once; returns the object center in the final base frame.
+
+    cfg is the GraspConfig and shared the ServerConfig of this goal.
 
     ctx.observer gets phase(Phase), target(center), plan(center, plan) and, in
     dry_run, ghost(arm waypoints) instead of any motion.
     Raises GraspFailed, OutOfReach, PlanningError, Canceled, and the robot's and
     the locator's errors.
     """
-    arm_solver, base_solver = _solvers(cfg, ctx.robot.urdf)
+    arm_solver, base_solver = _solvers(cfg, shared, ctx.robot.urdf)
     rotation = fixed_grasp_rotation(arm_solver, cfg.grasp_wrist)
 
     ctx.phase(Phase.MOVING_TO_START)
-    if cfg.dry_run:
+    if shared.dry_run:
         current = cfg.start_pose
     else:
         ctx.robot.move_arm(ctx.robot.arm_joints(), [cfg.start_pose], ctx.should_cancel)
-        ctx.sleep(cfg.settle_time)
+        ctx.sleep(shared.settle_time)
         current = ctx.robot.arm_joints()
 
     ctx.phase(Phase.DETECTING)
@@ -87,7 +89,7 @@ def run(goal: GraspGoal, cfg, ctx) -> np.ndarray:
         return center
 
     plan = replan(current, center)
-    if cfg.dry_run:
+    if shared.dry_run:
         ctx.observer.ghost([plan.pregrasp] + plan.approach + [plan.lift])
         return center
 
@@ -106,17 +108,17 @@ def run(goal: GraspGoal, cfg, ctx) -> np.ndarray:
             linear_gain=cfg.base_linear_gain,
             angular_gain=cfg.base_angular_gain,
         ),
-        settle_time=cfg.settle_time,
+        settle_time=shared.settle_time,
     )
 
-    if cfg.use_gripper:
+    if shared.use_gripper:
         ctx.robot.open_gripper(ctx.should_cancel)
     else:
         ctx.log.warn("use_gripper is false: not opening the gripper")
     ctx.robot.move_arm(current, [plan.pregrasp] + plan.approach, ctx.should_cancel)
 
     ctx.phase(Phase.GRASPING)
-    if cfg.use_gripper:
+    if shared.use_gripper:
         ctx.robot.close_gripper(ctx.should_cancel)
         # TODO[lnfu] check the direction once the gripper range is known.
         if ctx.robot.gripper_position() <= cfg.closed_threshold:
@@ -129,7 +131,7 @@ def run(goal: GraspGoal, cfg, ctx) -> np.ndarray:
     return center
 
 
-def _solvers(cfg, urdf):
+def _solvers(cfg, shared, urdf):
     if urdf is None:
         raise GraspFailed("no /robot_description received yet")
     try:
@@ -141,8 +143,8 @@ def _solvers(cfg, urdf):
             max_aim_yaw=np.deg2rad(cfg.max_aim_yaw_deg),
             max_base_translation=cfg.max_base_translation,
             max_base_rotation=np.deg2rad(cfg.max_base_rotation_deg),
-            ee_frame=cfg.ee_frame,
-            base_frame=cfg.base_frame,
+            ee_frame=shared.ee_frame,
+            base_frame=shared.base_frame,
         )
     except ValueError as e:
         raise GraspFailed(f"cannot build IK model: {e}") from e
