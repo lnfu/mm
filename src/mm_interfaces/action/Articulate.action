@@ -1,0 +1,28 @@
+# Open an articulated object (cabinet door) by its handle.
+# Left/right: as seen by the robot, facing the door.
+
+uint8 MODE_PROMPT=0   # find `prompt` with the gripper camera (Gemini)
+uint8 MODE_POINT=1    # open at `handle` around `hinge` (no camera, e.g. for testing)
+uint8 mode
+
+string prompt                        # MODE_PROMPT, e.g. "the top-left cabinet door"
+geometry_msgs/PointStamped handle    # MODE_POINT: handle center (grasp_center_link goal)
+geometry_msgs/PointStamped hinge     # MODE_POINT: any point on the hinge axis
+float64 open_angle                   # rad, 0 = pi/2
+---
+uint8 TYPE_UNKNOWN=0
+uint8 TYPE_REVOLUTE_LEFT=1    # hinge on the left
+uint8 TYPE_REVOLUTE_RIGHT=2   # hinge on the right
+uint8 TYPE_PRISMATIC=3        # drawer
+
+bool success
+string message
+uint8 type
+---
+uint8 MOVING_TO_START=0
+uint8 DETECTING=1
+uint8 APPROACHING=2
+uint8 GRASPING=3
+uint8 OPENING=4
+
+uint8 phase
