@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from mm_grasp.motion.planning import (
+from mm_manip.motion.planning import (
     FREE_YAW_ORIENTATION_COST,
     PlanningError,
     fixed_grasp_rotation,

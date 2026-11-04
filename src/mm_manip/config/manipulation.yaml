@@ -1,5 +1,5 @@
-# ros2 run mm_grasp grasp_server --ros-args --params-file <this file>
-mm_grasp:
+# ros2 run mm_manip manipulation_server --ros-args --params-file <this file>
+mm_manip:
   ros__parameters:
     dry_run: true # true: plan + RViz only, nothing moves
     base_dofs: "" # "" | "x" | "x,y" | "x,y,theta" | ...

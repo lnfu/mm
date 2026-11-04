@@ -4,12 +4,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from mm_grasp.config import GraspConfig
-from mm_grasp.errors import Canceled
-from mm_grasp.skills import grasp
-from mm_grasp.skills.grasp import GraspGoal, Phase, object_width
-from mm_grasp.skills.primitives import Context, OutOfReach
 from mm_ik.solver import IKSolver
+from mm_manip.config import GraspConfig
+from mm_manip.errors import Canceled
+from mm_manip.skills import grasp
+from mm_manip.skills.grasp import GraspGoal, Phase, object_width
+from mm_manip.skills.primitives import Context, OutOfReach
 
 stretch4_urdf = pytest.importorskip("stretch4_urdf")
 

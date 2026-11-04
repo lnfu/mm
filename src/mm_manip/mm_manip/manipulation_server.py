@@ -1,7 +1,7 @@
-"""Grasp action server (mm_interfaces/action/Grasp) on the robot.
+"""Manipulation action servers on the robot: ~/grasp (mm_interfaces/action/Grasp).
 
-  ros2 run mm_grasp grasp_server --ros-args --params-file config/grasp.yaml
-  ros2 action send_goal /mm_grasp/grasp mm_interfaces/action/Grasp "{prompt: cup}"
+  ros2 run mm_manip manipulation_server --ros-args --params-file config/manipulation.yaml
+  ros2 action send_goal /mm_manip/grasp mm_interfaces/action/Grasp "{prompt: cup}"
 
 dry_run: nothing moves. The plan is shown in RViz through ~/target_markers and
 ~/ghost_joint_states (feed it to a second robot_state_publisher with
@@ -36,9 +36,9 @@ assert all(getattr(Grasp.Feedback, p.name) == p for p in Phase), (
 )
 
 
-class GraspServer(Node):
+class ManipulationServer(Node):
     def __init__(self):
-        super().__init__("mm_grasp")
+        super().__init__("mm_manip")
         GraspConfig.declare(self)
         cfg = GraspConfig.from_node(self)
 
@@ -200,7 +200,7 @@ class _Observer:
 
 def main():
     rclpy.init()
-    node = GraspServer()
+    node = ManipulationServer()
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     try:

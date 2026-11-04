@@ -1,6 +1,6 @@
 """The pure modules must not pull in ROS, so the grasp logic stays testable anywhere.
 
-ROS lives in grasp_server, scene, motion/robot and perception/{locator,snapshot}.
+ROS lives in manipulation_server, scene, motion/robot and perception/{locator,snapshot}.
 A new module goes in PURE unless it talks to ROS.
 """
 
@@ -8,16 +8,16 @@ import subprocess
 import sys
 
 PURE = [
-    "mm_grasp.config",
-    "mm_grasp.errors",
-    "mm_grasp.transforms",
-    "mm_grasp.skills.grasp",
-    "mm_grasp.skills.primitives",
-    "mm_grasp.motion.base_control",
-    "mm_grasp.motion.planning",
-    "mm_grasp.motion.trajectory",
-    "mm_grasp.perception.images",
-    "mm_grasp.perception.localize",
+    "mm_manip.config",
+    "mm_manip.errors",
+    "mm_manip.transforms",
+    "mm_manip.skills.grasp",
+    "mm_manip.skills.primitives",
+    "mm_manip.motion.base_control",
+    "mm_manip.motion.planning",
+    "mm_manip.motion.trajectory",
+    "mm_manip.perception.images",
+    "mm_manip.perception.localize",
 ]
 
 ROS_PREFIXES = ("rclpy", "message_filters", "tf2_ros", "mm_interfaces")

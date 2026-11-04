@@ -13,7 +13,7 @@ fi
 source "$ROOT/.env"
 
 GPU_PKGS=(mm_interfaces mm_perception)
-ROBOT_PKGS=(mm_interfaces mm_ik mm_grasp)
+ROBOT_PKGS=(mm_interfaces mm_ik mm_manip)
 
 usage() {
   echo "usage: $0 [gpu|robot|all] [--build] [--test] [--dry-run]" >&2

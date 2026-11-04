@@ -69,7 +69,7 @@ class Scene:
         self._marker_pub.publish(markers)
 
     def _marker(self, stamp, marker_id, marker_type, rgb):
-        m = Marker(id=marker_id, type=marker_type, action=Marker.ADD, ns="mm_grasp")
+        m = Marker(id=marker_id, type=marker_type, action=Marker.ADD, ns="mm_manip")
         m.header.frame_id = self._base_frame
         m.header.stamp = stamp
         m.pose.orientation.w = 1.0

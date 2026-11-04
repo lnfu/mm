@@ -2,7 +2,7 @@ from glob import glob
 
 from setuptools import find_packages, setup
 
-package_name = "mm_grasp"
+package_name = "mm_manip"
 
 setup(
     name=package_name,
@@ -17,12 +17,12 @@ setup(
     zip_safe=True,
     maintainer="efliao",
     maintainer_email="efliao@cs.nycu.edu.tw",
-    description="Grasp action server running on Stretch 4.",
+    description="Manipulation action servers (grasp) running on Stretch 4.",
     license="TODO",
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "grasp_server = mm_grasp.grasp_server:main",
+            "manipulation_server = mm_manip.manipulation_server:main",
         ],
     },
 )

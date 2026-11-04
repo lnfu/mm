@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mm_grasp.config import GraspConfig
+from mm_manip.config import GraspConfig
 
 
 class FakeNode:

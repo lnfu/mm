@@ -1,6 +1,6 @@
 import pytest
 
-from mm_grasp.motion.trajectory import (
+from mm_manip.motion.trajectory import (
     moving_joints,
     split_long_moves,
     urdf_joint_positions,

@@ -9,4 +9,4 @@ select = ["E", "F", "W", "I", "B"]
 ignore = ["E501", "B905"]
 
 [lint.isort]
-known-first-party = ["mm_grasp", "mm_ik", "mm_interfaces", "mm_perception"]
+known-first-party = ["mm_manip", "mm_ik", "mm_interfaces", "mm_perception"]

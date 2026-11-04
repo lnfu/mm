@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>mm_grasp</name>
+  <name>mm_manip</name>
   <version>0.0.0</version>
-  <description>Grasp action server running on Stretch 4.</description>
+  <description>Manipulation action servers (grasp) running on Stretch 4.</description>
   <maintainer email="efliao@cs.nycu.edu.tw">efliao</maintainer>
   <license>TODO</license>
 
