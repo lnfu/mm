@@ -16,6 +16,7 @@ PURE = [
     "mm_manip.motion.base_control",
     "mm_manip.motion.planning",
     "mm_manip.motion.trajectory",
+    "mm_manip.motion.velocity",
     "mm_manip.perception.images",
     "mm_manip.perception.localize",
 ]

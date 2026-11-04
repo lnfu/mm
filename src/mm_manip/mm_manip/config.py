@@ -72,6 +72,12 @@ class ServerConfig(_Parameters):
     # split into max_step pieces (fewer stops).
     no_split_action_timeout: float = 10.0
     max_step: dict = field(default_factory=lambda: dict(DEFAULT_MAX_STEP))
+    # stretch_driver mode for FollowJointTrajectory moves. navigation also takes
+    # /cmd_vel (grasp's base moves); position does not. Velocity paths switch the
+    # driver to velocity mode and the next FJT move switches it back.
+    fjt_mode: str = "navigation"
+    control_rate: float = 30.0  # Hz, velocity path commands
+    path_settle_timeout: float = 5.0  # s allowed after a velocity path ends to arrive
 
     detect_service: str = "/mm_perception/detect"
     service_timeout: float = 5.0

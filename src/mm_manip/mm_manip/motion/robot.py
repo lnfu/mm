@@ -1,12 +1,22 @@
-"""Hardware interface to stretch_driver."""
+"""Hardware interface to stretch_driver.
+
+Two ways to move the arm, each in its own driver mode (switched as needed, since the
+mode is global to the driver):
+- move_arm: FollowJointTrajectory, point by point (fjt_mode, navigation by default).
+- follow_path: /joint_vel and /cmd_vel velocity commands along a timed path, without
+  stopping at the waypoints (velocity mode). stretch_driver has no timeout on either
+  topic, so it always ends by commanding zero.
+"""
 
 import threading
 import time
 
 from control_msgs.action import FollowJointTrajectory
+from control_msgs.msg import JointJog
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from rcl_interfaces.srv import GetParameters
+from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.action import ActionClient
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import JointState
@@ -19,6 +29,7 @@ from ..errors import Canceled
 from .base_control import (
     BaseGains,
     Pose2D,
+    displacement,
     rotate_command,
     translate_command,
     yaw_from_quaternion,
@@ -30,6 +41,12 @@ from .trajectory import (
     moving_joints,
     split_long_moves,
 )
+from .velocity import BASE_X, PathTracker, TrackingGains
+
+# Prismatic joints take a velocity on /joint_vel. stretch_driver turns a wrist
+# "velocity" v into move_by(v * duration) from the measured position, so for the
+# wrist follow_path sends, with duration 1 s, the remaining distance to the path.
+PRISMATIC = ("lift_joint", "arm_joint")
 
 
 class MotionError(RuntimeError):
@@ -44,6 +61,9 @@ class Robot:
         driver_joint_names: dict,
         max_step: dict = DEFAULT_MAX_STEP,
         no_split_action_timeout: float = 10.0,
+        fjt_mode: str = "navigation",
+        control_rate: float = 30.0,
+        path_settle_timeout: float = 5.0,
         callback_group=None,
     ):
         """
@@ -53,14 +73,24 @@ class Robot:
                 in joint_states and FollowJointTrajectory.
             max_step: largest change per joint in one trajectory point, used when the
                 driver's action_timeout is shorter than no_split_action_timeout.
+            fjt_mode: driver mode for move_arm ("navigation" or "position"; both
+                take FollowJointTrajectory, only navigation also takes /cmd_vel).
+            control_rate: follow_path command rate (Hz).
+            path_settle_timeout: time follow_path allows after the path ends to get
+                within tolerance.
         """
         self._node = node
         self._driver_names = driver_joint_names
         self._max_step = max_step
         self._no_split_action_timeout = no_split_action_timeout
         self._split = None  # last answer of _needs_split, to log only changes
+        self._fjt_mode = fjt_mode
+        self._period = 1.0 / control_rate
+        self._path_settle_timeout = path_settle_timeout
         self._lock = threading.Lock()
         self._joint_state = {}
+        self._joint_state_time = None
+        self._mode = None  # latest /mode from the driver
         self._urdf = None
         self._active_goal = None
 
@@ -87,9 +117,19 @@ class Robot:
             "/stretch_driver/get_parameters",
             callback_group=callback_group,
         )
+        self._driver_set_params = node.create_client(
+            SetParameters,
+            "/stretch_driver/set_parameters",
+            callback_group=callback_group,
+        )
+        node.create_subscription(
+            String, "/mode", self._on_mode, latched, callback_group=callback_group
+        )
+        self._joint_vel = node.create_publisher(JointJog, "/joint_vel", 1)
+        self._arm_moving = False  # follow_path is commanding /joint_vel
 
-        # Base: stretch_driver takes /cmd_vel (vx, vy, w) in navigation mode and has no
-        # cmd_vel timeout, so every base motion ends by publishing zero.
+        # Base: stretch_driver takes /cmd_vel (vx, vy, w) in navigation and velocity
+        # modes and has no cmd_vel timeout, so every base motion ends by publishing zero.
         self._odom = None  # (Pose2D, receive time)
         node.create_subscription(
             Odometry, "/wheel_odom", self._on_odom, 10, callback_group=callback_group
@@ -101,7 +141,8 @@ class Robot:
 
     def _on_joint_states(self, msg):
         with self._lock:
-            self._joint_state.update(zip(msg.name, msg.position))
+            self._joint_state.update(zip(msg.name, msg.position, strict=False))
+            self._joint_state_time = time.monotonic()
 
     def _on_odom(self, msg):
         p = msg.pose.pose
@@ -112,19 +153,27 @@ class Robot:
     def _on_urdf(self, msg):
         self._urdf = msg.data
 
+    def _on_mode(self, msg):
+        self._mode = msg.data
+
     @property
     def urdf(self):
         return self._urdf
 
-    def arm_joints(self) -> dict:
+    def arm_joints(self, max_age: float = None) -> dict:
         """Current arm joints keyed by IK names.
 
         The arm is read from its driver name if published, otherwise summed from
         the URDF segments arm_l1..arm_l4 (stretch_driver publishes the segments,
-        each at a quarter of the total).
+        each at a quarter of the total). With max_age, older joint states raise.
         """
         with self._lock:
             state = dict(self._joint_state)
+            stamp = self._joint_state_time
+        if max_age is not None and (
+            stamp is None or time.monotonic() - stamp > max_age
+        ):
+            raise MotionError(f"/joint_states is older than {max_age} s")
         joints = {}
         for name in ARM_JOINT_NAMES:
             driver = self._driver_names[name]
@@ -148,6 +197,7 @@ class Robot:
         Raises Canceled if should_cancel() turns true (the goal is canceled first),
         MotionError if the controller rejects or fails it.
         """
+        self._ensure_mode(self._fjt_mode, should_cancel)
         if not self._fjt.wait_for_server(timeout_sec=2.0):
             raise MotionError("FollowJointTrajectory server not available")
         if self._needs_split(should_cancel):
@@ -211,11 +261,104 @@ class Robot:
             time.sleep(0.02)
         return future.result()
 
+    def follow_path(self, points: list, should_cancel, gains: TrackingGains = None):
+        """Move through `points` without stopping at them, and wait.
+
+        points: dicts keyed by IK joint names, and optionally BASE_X: the base's
+        forward travel (m) from where it is when the path starts (its heading is
+        not controlled). gains: path timing, tracking gain and arrival tolerances
+        (per call, so a skill can read them from its parameters on every goal).
+        The path starts from the measured joints and ends once
+        every joint is within tolerance of the last point; everything is always
+        commanded to zero at the end.
+        Raises Canceled if should_cancel() turns true, MotionError if the driver
+        does not switch to velocity mode, joint states or odometry stop, or the
+        robot does not arrive.
+        """
+        if not points:
+            raise ValueError("no waypoints")
+        self._ensure_mode("velocity", should_cancel)
+        with_base = BASE_X in points[-1]
+        base_start = self._odom_pose(max_age=0.5) if with_base else None
+
+        def measured():
+            joints = self.arm_joints(max_age=0.5)
+            if with_base:
+                pose = self._odom_pose(max_age=0.5)
+                joints[BASE_X] = displacement(base_start, pose)[0]
+            return joints
+
+        tracker = PathTracker(measured(), points, gains or TrackingGains())
+        arm = [j for j in tracker.joints if j != BASE_X]
+        deadline = tracker.duration + self._path_settle_timeout
+        t0 = time.monotonic()
+        self._arm_moving = True
+        self._base_moving = with_base
+        try:
+            while True:
+                if should_cancel():
+                    raise Canceled()
+                t = time.monotonic() - t0
+                current = measured()
+                velocity, error, done = tracker.command(t, current)
+                if done:
+                    return
+                if t > deadline:
+                    far = {j: round(e, 4) for j, e in error.items() if abs(e) > 1e-3}
+                    raise MotionError(f"path did not arrive, error {far}")
+                ahead, _ = tracker.desired(t + self._period)
+                self._publish_joints(
+                    {
+                        j: velocity[j] if j in PRISMATIC else ahead[j] - current[j]
+                        for j in arm
+                    }
+                )
+                if with_base:
+                    self._publish_twist(velocity[BASE_X], 0.0, 0.0)
+                time.sleep(self._period)
+        finally:
+            self._publish_joints(dict.fromkeys(ARM_JOINT_NAMES, 0.0))
+            self._arm_moving = False
+            if with_base:
+                self._publish_twist(0.0, 0.0, 0.0)
+                self._base_moving = False
+
+    def _publish_joints(self, commands: dict):
+        msg = JointJog()
+        msg.joint_names = [self._driver_names[j] for j in commands]
+        msg.velocities = [float(v) for v in commands.values()]
+        msg.duration = 1.0  # wrist: move_by(velocity * duration), see PRISMATIC
+        self._joint_vel.publish(msg)
+
+    def _ensure_mode(self, mode: str, should_cancel, timeout: float = 2.0):
+        """Switch stretch_driver to `mode` (its `mode` parameter) unless it is in it."""
+        if self._mode == mode:
+            return
+        self._node.get_logger().info(
+            f"switching stretch_driver from {self._mode} to {mode} mode"
+        )
+        if not self._driver_set_params.wait_for_service(timeout_sec=timeout):
+            raise MotionError("/stretch_driver/set_parameters not available")
+        value = ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=mode)
+        future = self._driver_set_params.call_async(
+            SetParameters.Request(parameters=[Parameter(name="mode", value=value)])
+        )
+        deadline = time.monotonic() + timeout
+        while self._mode != mode:
+            if should_cancel():
+                raise Canceled()
+            if time.monotonic() > deadline:
+                result = future.result() if future.done() else None
+                raise MotionError(f"stretch_driver did not switch to {mode} ({result})")
+            time.sleep(0.02)
+
     def stop(self):
         """Stop all motion now."""
         goal = self._active_goal
         if goal is not None:
             goal.cancel_goal_async()
+        if self._arm_moving:
+            self._publish_joints(dict.fromkeys(ARM_JOINT_NAMES, 0.0))
         if self._base_moving:
             self._publish_twist(0.0, 0.0, 0.0)
 

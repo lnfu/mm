@@ -50,6 +50,9 @@ class ManipulationServer(Node):
             cfg.driver_joint,
             max_step=cfg.max_step,
             no_split_action_timeout=cfg.no_split_action_timeout,
+            fjt_mode=cfg.fjt_mode,
+            control_rate=cfg.control_rate,
+            path_settle_timeout=cfg.path_settle_timeout,
             callback_group=group,
         )
         self._scene = Scene(self, base_frame=cfg.base_frame)

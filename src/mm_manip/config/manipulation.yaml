@@ -21,6 +21,9 @@ mm_manip:
       wrist_yaw_joint: 0.8
       wrist_pitch_joint: 0.8
       wrist_roll_joint: 0.8
+    fjt_mode: navigation # driver mode for FJT moves; velocity paths switch to velocity
+    control_rate: 30.0 # Hz, velocity path commands
+    path_settle_timeout: 5.0 # s allowed after a velocity path ends to arrive
 
     settle_time: 0.3 # s to wait after the arm stops, before detecting
     service_timeout: 5.0
