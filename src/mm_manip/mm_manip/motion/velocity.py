@@ -1,14 +1,3 @@
-"""Follow a path of joint waypoints with velocity commands. No ROS.
-
-The path goes straight (in joint space) from waypoint to waypoint without stopping
-at them. A joint can also be the base: "base_x" and "base_y", its travel (m) since
-the path started along the base's x and y axes at the start, and "base_theta", its
-turn (rad) since then. Each segment is timed so no joint exceeds its max velocity and all joints
-arrive together. At every control step the joints are compared with where the path
-says they should be by now: the command is the path's own velocity plus a
-correction proportional to that error.
-"""
-
 from dataclasses import dataclass, field
 from itertools import pairwise
 

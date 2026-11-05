@@ -1,5 +1,3 @@
-"""Grasp planning: target poses -> joint waypoints."""
-
 from dataclasses import dataclass, field
 
 import numpy as np

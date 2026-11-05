@@ -1,5 +1,6 @@
-"""Manipulation action servers on the robot, one goal at a time across both:
-~/grasp (mm_interfaces/action/Grasp) and ~/articulate (mm_interfaces/action/Articulate).
+"""
+~/grasp (mm_interfaces/action/Grasp)
+~/articulate (mm_interfaces/action/Articulate)
 
   ros2 run mm_manip manipulation_server --ros-args --params-file config/manipulation.yaml
   ros2 action send_goal /mm_manip/grasp mm_interfaces/action/Grasp "{prompt: cup}"

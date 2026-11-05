@@ -1,12 +1,4 @@
-"""Hardware interface to stretch_driver.
-
-Two ways to move the arm, each in its own driver mode (switched as needed, since the
-mode is global to the driver):
-- move_arm: FollowJointTrajectory, point by point (fjt_mode, navigation by default).
-- follow_path: /joint_vel and /cmd_vel velocity commands along a timed path, without
-  stopping at the waypoints (velocity mode). stretch_driver has no timeout on either
-  topic, so it always ends by commanding zero.
-"""
+"""Hardware interface to stretch_driver."""
 
 import math
 import threading
