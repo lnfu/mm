@@ -195,8 +195,11 @@ class ManipulationServer(Node):
             with self._busy_lock:
                 self._busy = False
 
-        log = self.get_logger()
-        (log.info if result.success else log.warn)(f"{what} result: {result.message}")
+        # One call site per severity: rclpy refuses a call site whose severity changes.
+        if result.success:
+            self.get_logger().info(f"{what} result: {result.message}")
+        else:
+            self.get_logger().warn(f"{what} result: {result.message}")
         return result
 
     def _execute_grasp(self, goal_handle):
