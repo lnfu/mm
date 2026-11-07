@@ -1,0 +1,132 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sumo: <http://purl.org/ieee1872-owl/sumo-cora#> .
+@prefix rparts: <http://purl.org/ieee1872-owl/rparts#> .
+@prefix core: <https://ontology.unifiedcyberontology.org/uco/core/> .
+@prefix observable: <https://ontology.unifiedcyberontology.org/uco/observable/> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-network> a owl:Ontology ;
+    rdfs:comment "Onboard network adapters, their addresses, subnets, and Wi-Fi connection."@en ;
+    owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-sensors> .
+
+# Wireless adapter wlo1
+mm:wifi_adapter_1 a mm:NetworkAdapter, sumo:Device ;
+    rdfs:label "Onboard Wi-Fi adapter (wlo1)"@en ;
+    rdfs:comment "Wi-Fi adapter (wlo1) connecting the robot to the ED305 test site network (SSID HCIS-Lab-Robotics)."@en ;
+    rdfs:comment "Chip: Intel CNVi Wi-Fi (PCI ID 8086:7740), exact model unconfirmed."@en ;
+    mm:interfaceName "wlo1" ;
+    mm:chip "Intel CNVi Wi-Fi (PCI ID 8086:7740)" ;
+    mm:pciAddress "0000:00:14.3" ;
+    mm:driver "iwlwifi" ;
+    mm:hasFirmware mm:wifi_adapter_1_firmware ;
+    core:hasFacet mm:wifi_adapter_1_interface_facet ;
+    sumo:part mm:nuc_1 ;
+    rparts:robotCommunicatingPart mm:stretch4_1 .
+
+mm:wifi_adapter_1_firmware a observable:Software ;
+    rdfs:label "iwlwifi firmware (wlo1)"@en ;
+    core:hasFacet mm:wifi_adapter_1_firmware_facet .
+
+mm:wifi_adapter_1_firmware_facet a observable:SoftwareFacet ;
+    observable:version "101.6e695a70.0 (bz-b0-fm-c0)" .
+
+mm:wifi_adapter_1_interface_facet a observable:NetworkInterfaceFacet ;
+    observable:macAddress mm:wifi_adapter_1_mac ;
+    observable:ip mm:wifi_adapter_1_ip .
+
+mm:wifi_adapter_1_mac a observable:MACAddress ;
+    core:hasFacet mm:wifi_adapter_1_mac_facet .
+
+mm:wifi_adapter_1_mac_facet a observable:MACAddressFacet ;
+    observable:addressValue "d4:94:a9:25:19:ad" .
+
+mm:wifi_adapter_1_ip a observable:IPv4Address ;
+    core:hasFacet mm:wifi_adapter_1_ip_facet .
+
+mm:wifi_adapter_1_ip_facet a observable:IPv4AddressFacet ;
+    observable:addressValue "10.50.90.160" .
+
+# ED305 test site Wi-Fi subnet
+mm:ed305_subnet_1 a observable:NetworkSubnet ;
+    rdfs:label "ED305 test site subnet (HCIS-Lab-Robotics)"@en ;
+    core:name "10.50.90.0/24" .
+
+mm:wifi_adapter_1_ip_in_ed305_subnet a observable:ObservableRelationship ;
+    core:source mm:wifi_adapter_1_ip ;
+    core:target mm:ed305_subnet_1 ;
+    core:kindOfRelationship "Contained_Within" ;
+    core:isDirectional true .
+
+# Wi-Fi association of wlo1 to the ED305 test site SSID
+mm:wifi_connection_1 a observable:WirelessNetworkConnection ;
+    rdfs:label "wlo1 Wi-Fi connection"@en ;
+    core:hasFacet mm:wifi_connection_1_wireless_facet, mm:wifi_connection_1_network_facet .
+
+mm:wifi_connection_1_wireless_facet a observable:WirelessNetworkConnectionFacet ;
+    observable:ssid "HCIS-Lab-Robotics" .
+
+mm:wifi_connection_1_network_facet a observable:NetworkConnectionFacet ;
+    observable:src mm:wifi_adapter_1 .
+
+# Wired adapter enp86s0
+mm:ethernet_adapter_1 a mm:NetworkAdapter, sumo:Device ;
+    rdfs:label "Onboard Ethernet adapter (enp86s0)"@en ;
+    rdfs:comment "Wired Ethernet adapter (enp86s0) for the robot's internal network, connecting the onboard computer to the head LiDARs."@en ;
+    rdfs:comment "Link: 1 Gbit/s full duplex (supports 2.5 Gbit/s)."@en ;
+    mm:interfaceName "enp86s0" ;
+    mm:chip "Intel Ethernet Controller I226-V (ASUSTeK subsystem 1043:88fe)" ;
+    mm:pciAddress "0000:56:00.0" ;
+    mm:driver "igc" ;
+    mm:hasFirmware mm:ethernet_adapter_1_firmware ;
+    mm:linkSpeed [ a qudt:QuantityValue ; qudt:numericValue 1.0 ; qudt:hasUnit unit:GigaBIT-PER-SEC ] ; # full duplex
+    mm:connectionName "Stretch Internal Networking" ;
+    core:hasFacet mm:ethernet_adapter_1_interface_facet ;
+    sumo:part mm:nuc_1 .
+
+mm:ethernet_adapter_1_firmware a observable:Software ;
+    rdfs:label "igc NVM firmware (enp86s0)"@en ;
+    core:hasFacet mm:ethernet_adapter_1_firmware_facet .
+
+mm:ethernet_adapter_1_firmware_facet a observable:SoftwareFacet ;
+    observable:version "2023:889d" .
+
+mm:ethernet_adapter_1_interface_facet a observable:NetworkInterfaceFacet ;
+    observable:macAddress mm:ethernet_adapter_1_mac ;
+    observable:ip mm:ethernet_adapter_1_ip_1, mm:ethernet_adapter_1_ip_2 .
+
+mm:ethernet_adapter_1_mac a observable:MACAddress ;
+    core:hasFacet mm:ethernet_adapter_1_mac_facet .
+
+mm:ethernet_adapter_1_mac_facet a observable:MACAddressFacet ;
+    observable:addressValue "88:ae:dd:77:39:cf" .
+
+mm:ethernet_adapter_1_ip_1 a observable:IPv4Address ;
+    core:hasFacet mm:ethernet_adapter_1_ip_1_facet .
+
+mm:ethernet_adapter_1_ip_1_facet a observable:IPv4AddressFacet ;
+    observable:addressValue "192.168.1.100" .
+
+# Prefix length not recorded for this address.
+mm:ethernet_adapter_1_ip_2 a observable:IPv4Address ;
+    core:hasFacet mm:ethernet_adapter_1_ip_2_facet .
+
+mm:ethernet_adapter_1_ip_2_facet a observable:IPv4AddressFacet ;
+    observable:addressValue "192.168.1.2" .
+
+# Robot internal subnet
+mm:robot_internal_subnet_1 a observable:NetworkSubnet ;
+    rdfs:label "Robot internal subnet (Stretch Internal Networking)"@en ;
+    core:name "192.168.1.0/24" .
+
+mm:ethernet_adapter_1_ip_1_in_robot_internal_subnet a observable:ObservableRelationship ;
+    core:source mm:ethernet_adapter_1_ip_1 ;
+    core:target mm:robot_internal_subnet_1 ;
+    core:kindOfRelationship "Contained_Within" ;
+    core:isDirectional true .
+
+# Connections
+
+mm:ethernet_adapter_1 mm:connected mm:head_lidar_right, mm:head_lidar_left .

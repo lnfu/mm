@@ -1,0 +1,164 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sumo: <http://purl.org/ieee1872-owl/sumo-cora#> .
+@prefix rparts: <http://purl.org/ieee1872-owl/rparts#> .
+@prefix core: <https://ontology.unifiedcyberontology.org/uco/core/> .
+@prefix observable: <https://ontology.unifiedcyberontology.org/uco/observable/> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix schema: <https://schema.org/> .
+@prefix mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-sensors> a owl:Ontology ;
+    rdfs:comment "Sensors, cameras, and audio devices on the robot."@en ;
+    owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-system> .
+
+# Right LiDAR
+mm:head_lidar_right a mm:MeasuringDevice, observable:Device ;
+    rdfs:label "Head LiDAR (right)"@en ;
+    rdfs:comment "3D LiDAR on the right side of the head. Hesai JT128, IP 192.168.1.201, S/N JT3DCF569439C855."@en ;
+    schema:productionDate "2025-03-05"^^xsd:date ;
+    mm:hasFirmware mm:hesai_jt128_firmware_1 ;
+    mm:checksum "0xD0C6B263" ;
+    core:hasFacet mm:head_lidar_right_device_facet, mm:head_lidar_right_interface_facet ;
+    rparts:robotSensingPart mm:stretch4_1 .
+
+mm:head_lidar_right_device_facet a observable:DeviceFacet ;
+    observable:model "Hesai JT128" ;
+    observable:serialNumber "JT3DCF569439C855" .
+
+mm:head_lidar_right_interface_facet a observable:NetworkInterfaceFacet ;
+    observable:macAddress mm:head_lidar_right_mac ;
+    observable:ip mm:head_lidar_right_ip .
+
+mm:head_lidar_right_mac a observable:MACAddress ;
+    core:hasFacet mm:head_lidar_right_mac_facet .
+
+mm:head_lidar_right_mac_facet a observable:MACAddressFacet ;
+    observable:addressValue "EC:9F:0D:01:FF:4F" .
+
+mm:head_lidar_right_ip a observable:IPv4Address ;
+    core:hasFacet mm:head_lidar_right_ip_facet .
+
+mm:head_lidar_right_ip_facet a observable:IPv4AddressFacet ;
+    observable:addressValue "192.168.1.201" .
+
+# Left LiDAR
+mm:head_lidar_left a mm:MeasuringDevice, observable:Device ;
+    rdfs:label "Head LiDAR (left)"@en ;
+    rdfs:comment "3D LiDAR on the left side of the head. Hesai JT128, IP 192.168.1.202, S/N JT32CA539B36CD50."@en ;
+    schema:productionDate "2025-03-05"^^xsd:date ;
+    mm:hasFirmware mm:hesai_jt128_firmware_1 ;
+    mm:checksum "0x4FA1D1BF" ;
+    core:hasFacet mm:head_lidar_left_device_facet, mm:head_lidar_left_interface_facet ;
+    rparts:robotSensingPart mm:stretch4_1 .
+
+mm:head_lidar_left_device_facet a observable:DeviceFacet ;
+    observable:model "Hesai JT128" ;
+    observable:serialNumber "JT32CA539B36CD50" .
+
+mm:head_lidar_left_interface_facet a observable:NetworkInterfaceFacet ;
+    observable:macAddress mm:head_lidar_left_mac ;
+    observable:ip mm:head_lidar_left_ip .
+
+mm:head_lidar_left_mac a observable:MACAddress ;
+    core:hasFacet mm:head_lidar_left_mac_facet .
+
+mm:head_lidar_left_mac_facet a observable:MACAddressFacet ;
+    observable:addressValue "EC:9F:0D:02:24:8A" .
+
+mm:head_lidar_left_ip a observable:IPv4Address ;
+    core:hasFacet mm:head_lidar_left_ip_facet .
+
+mm:head_lidar_left_ip_facet a observable:IPv4AddressFacet ;
+    observable:addressValue "192.168.1.202" .
+
+# Firmware release shared by both head LiDARs
+mm:hesai_jt128_firmware_1 a observable:Software ;
+    rdfs:label "Hesai JT128 firmware"@en ;
+    core:hasFacet mm:hesai_jt128_firmware_1_facet .
+
+mm:hesai_jt128_firmware_1_facet a observable:SoftwareFacet ;
+    observable:version "15.AF.B0.00.02.Y0 / 1.b.0028 / 2.b.0692" .
+
+# Head camera board
+mm:head_camera_board a sumo:Device, observable:Device ;
+    rdfs:label "Head camera board"@en ;
+    rdfs:comment "Luxonis OAK-FFC-3P camera board on the head, MxId 1944301031EB002F00. Holds three cameras (CAM_A, CAM_B, CAM_C)."@en ;
+    mm:boardRevision "DM1090, rev R3M0E3" ;
+    mm:mxId "1944301031EB002F00" ;
+    mm:hardwareConfig "F0-FV00-BC000" ;
+    mm:usbSpeed [ a qudt:QuantityValue ; qudt:numericValue 5.0 ; qudt:hasUnit unit:GigaBIT-PER-SEC ] ; # SUPER (USB 3)
+    mm:usbPath "3.3" ;
+    core:hasFacet mm:head_camera_board_device_facet ;
+    sumo:part mm:stretch4_1 .
+
+mm:head_camera_board_device_facet a observable:DeviceFacet ;
+    observable:model "Luxonis OAK-FFC-3P" .
+
+# CAM_A
+mm:head_camera_center a mm:Camera ;
+    rdfs:label "Head camera (center)"@en ;
+    rdfs:comment "High-resolution color camera at the center of the head (CAM_A, Sony IMX378, rolling shutter)."@en ;
+    mm:boardSocket "CAM_A" ;
+    mm:sensorChip "Sony IMX378" ;
+    mm:resolution "4056x3040" ;
+    mm:shutterType "rolling" ;
+    sumo:part mm:head_camera_board ;
+    rparts:robotSensingPart mm:stretch4_1 .
+
+# CAM_B  — TODO[lnfu] confirm CAM_B is left
+mm:head_camera_left a mm:Camera ;
+    rdfs:label "Head camera (left)"@en ;
+    rdfs:comment "Left fisheye camera on the head (CAM_B, onsemi AR0234, global shutter). Forms a stereo pair with head_camera_right."@en ;
+    mm:boardSocket "CAM_B" ;
+    mm:sensorChip "onsemi AR0234" ;
+    mm:resolution "1920x1200" ;
+    mm:shutterType "global" ;
+    sumo:part mm:head_camera_board ;
+    rparts:robotSensingPart mm:stretch4_1 ;
+    mm:stereoPairWith mm:head_camera_right .
+
+# CAM_C  — TODO[lnfu] confirm CAM_C is right
+mm:head_camera_right a mm:Camera ;
+    rdfs:label "Head camera (right)"@en ;
+    rdfs:comment "Right fisheye camera on the head (CAM_C, onsemi AR0234, global shutter). Forms a stereo pair with head_camera_left."@en ;
+    mm:boardSocket "CAM_C" ;
+    mm:sensorChip "onsemi AR0234" ;
+    mm:resolution "1920x1200" ;
+    mm:shutterType "global" ;
+    sumo:part mm:head_camera_board ;
+    rparts:robotSensingPart mm:stretch4_1 .
+
+# Gripper camera
+mm:gripper_camera a mm:Camera, observable:Device ;
+    rdfs:label "Gripper camera"@en ;
+    rdfs:comment "Luxonis OAK-D-SR short-range stereo depth camera on the gripper, MxId 19443010A1FE085B00."@en ;
+    rdfs:comment "Sensors: OmniVision OV9782 x 2, 1280x800, color, global shutter (stereo pair)."@en ;
+    mm:boardRevision "DM2080, rev R4M2E4" ;
+    mm:mxId "19443010A1FE085B00" ;
+    mm:hardwareConfig "F1-FV00-BC000" ;
+    mm:usbSpeed [ a qudt:QuantityValue ; qudt:numericValue 480.0 ; qudt:hasUnit unit:MegaBIT-PER-SEC ] ; # HIGH (USB 2)
+    mm:usbPath "3.7.3.1" ;
+    mm:sensorChip "OmniVision OV9782" ;
+    mm:resolution "1280x800" ;
+    mm:shutterType "global" ;
+    core:hasFacet mm:gripper_camera_device_facet ;
+    rparts:robotSensingPart mm:stretch4_1 .
+
+mm:gripper_camera_device_facet a observable:DeviceFacet ;
+    observable:model "Luxonis OAK-D-SR" .
+
+# Microphone
+mm:head_microphone a mm:Microphone ;
+    rdfs:label "Head microphone"@en ;
+    rdfs:comment "Microphone at the bottom of the head."@en ;
+    rparts:robotSensingPart mm:stretch4_1 ;
+    rparts:robotCommunicatingPart mm:stretch4_1 .
+
+# Speaker
+mm:head_speaker a mm:SpeakerDevice ;
+    rdfs:label "Head speaker"@en ;
+    rdfs:comment "Speaker at the bottom of the head."@en ;
+    rparts:robotCommunicatingPart mm:stretch4_1 .

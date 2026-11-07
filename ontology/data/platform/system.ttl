@@ -1,0 +1,33 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sumo: <http://purl.org/ieee1872-owl/sumo-cora#> .
+@prefix cora: <http://purl.org/ieee1872-owl/cora-bare#> .
+@prefix corax: <http://purl.org/ieee1872-owl/corax#> .
+@prefix rparts: <http://purl.org/ieee1872-owl/rparts#> .
+@prefix core: <https://ontology.unifiedcyberontology.org/uco/core/> .
+@prefix observable: <https://ontology.unifiedcyberontology.org/uco/observable/> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-system> a owl:Ontology ;
+    rdfs:comment "The robotic system, the robot, and its onboard computer."@en ;
+    owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform>, <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-sosa> .
+
+mm:mm_system a cora:RoboticSystem ; # SingleRoboticSystem | CollectiveRoboticSystem
+    rdfs:label "MM"@en ;
+    rdfs:comment "The robotic system of the project."@en .
+
+mm:stretch4_1 a cora:Robot, sosa:Platform ;
+    rdfs:label "Stretch4"@en ;
+    rdfs:comment "Hello Robot Stretch 4"@en ;
+    sumo:part mm:mm_system .
+
+mm:nuc_1 a mm:Computer, corax:ProcessingDevice ;
+    rdfs:label "Onboard computer"@en ;
+    rdfs:comment "Onboard computer (ASUS NUC) running ROS 2 Jazzy."@en ;
+    rdfs:comment "maker: ASUS (new-generation NUC); kernel: 7.0.0-34-generic"@en ;
+    core:hasFacet mm:nuc_1_computer_facet ;
+    rparts:robotProcessingPart mm:stretch4_1 .
+
+mm:nuc_1_computer_facet a observable:ComputerSpecificationFacet ;
+    observable:hostname "stretch-se4-4061" .

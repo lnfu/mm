@@ -1,0 +1,46 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sumo: <http://purl.org/ieee1872-owl/sumo-cora#> .
+@prefix mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-sites> a owl:Ontology ;
+    rdfs:comment "Site infrastructure and its connections to the robot. Currently the ED305 test site; deployment sites go here too until they are split out."@en ;
+    owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-network> .
+
+# Test site ED305: network devices
+mm:ap_1 a sumo:Device ;
+    rdfs:label "Access point"@en ;
+    rdfs:comment "Wi-Fi access point (UniFi U6 Pro)."@en ;
+    sumo:part mm:mm_system .
+
+mm:poe_adapter_1 a sumo:Device ;
+    rdfs:label "PoE adapter"@en ;
+    rdfs:comment "PoE injector that powers the Wi-Fi access point."@en ;
+    rdfs:comment "UniFi PoE++ Adapter 60W"@en ;
+    sumo:part mm:mm_system .
+
+mm:gateway_1 a sumo:Device ;
+    rdfs:label "Gateway"@en ;
+    rdfs:comment "Gateway (UniFi Cloud Gateway Ultra) between the ED305 test site network and the internet."@en ;
+    sumo:part mm:mm_system .
+
+# TODO[lnfu] 型號之後補上
+mm:switch_1 a sumo:Device ;
+    rdfs:label "Switch"@en ;
+    rdfs:comment "Network switch between the GPU workstation and the gateway."@en ;
+    sumo:part mm:mm_system .
+
+mm:workstation_1 a mm:Computer ;
+    rdfs:label "GPU workstation"@en ;
+    sumo:part mm:mm_system .
+
+# Connections
+mm:wifi_adapter_1 mm:connected mm:ap_1 .
+
+mm:poe_adapter_1 mm:connected mm:ap_1 .
+
+mm:ap_1 mm:connected mm:gateway_1 .
+
+mm:switch_1 mm:connected mm:gateway_1 .
+
+mm:workstation_1 mm:connected mm:switch_1 .
