@@ -1,0 +1,16 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rparts: <http://purl.org/ieee1872-owl/rparts#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-sosa> a owl:Ontology ;
+    rdfs:comment "Alignment of mm platform classes and IEEE 1872 robot parts to W3C SOSA."@en ;
+    owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform>, sosa: .
+
+mm:MeasuringDevice rdfs:subClassOf sosa:Sensor .
+mm:Camera rdfs:subClassOf sosa:Sensor .
+mm:Microphone rdfs:subClassOf sosa:Sensor .
+
+# A robot's sensing parts are hosted by it.
+rparts:robotSensingPart rdfs:subPropertyOf sosa:isHostedBy .

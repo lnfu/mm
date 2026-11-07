@@ -1,0 +1,111 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sumo: <http://purl.org/ieee1872-owl/sumo-cora#> .
+@prefix observable: <https://ontology.unifiedcyberontology.org/uco/observable/> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform> a owl:Ontology ;
+    rdfs:comment "Classes and properties for the robot platform hardware."@en ;
+    owl:imports <http://purl.org/ieee1872-owl/cora>, <http://purl.org/ieee1872-owl/corax>, <http://purl.org/ieee1872-owl/pos>, <http://purl.org/ieee1872-owl/rparts>, observable:1.5.0, <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-external-terms> .
+
+# Classes
+
+# TODO[lnfu] from Merge.kif (SUMO)
+mm:MeasuringDevice a owl:Class ;
+    rdfs:subClassOf sumo:Device ;
+    rdfs:label "Measuring device"@en .
+
+mm:EngineeringComponent a owl:Class ;
+    rdfs:subClassOf sumo:Device ;
+    rdfs:label "Engineering component"@en .
+
+mm:Product a owl:Class ;
+    rdfs:subClassOf sumo:Artifact ;
+    rdfs:label "Product"@en .
+
+# TODO[lnfu] from Mid-level-ontology.kif (SUMO)
+mm:Computer a owl:Class ;
+    rdfs:subClassOf sumo:ElectricDevice ;
+    rdfs:label "Computer"@en .
+
+mm:Camera a owl:Class ;
+    rdfs:subClassOf sumo:Device ;
+    rdfs:label "Camera"@en .
+
+mm:CommunicationDevice a owl:Class ;
+    rdfs:subClassOf mm:EngineeringComponent ;
+    rdfs:label "Communication device"@en .
+
+mm:Microphone a owl:Class ;
+    rdfs:subClassOf sumo:ElectricDevice, mm:CommunicationDevice ;
+    rdfs:label "Microphone"@en .
+
+# TODO[lnfu] from QoSontology.kif (SUMO)
+mm:ComputerComponent a owl:Class ;
+    rdfs:subClassOf mm:ComputerHardware ;
+    rdfs:label "Computer component"@en .
+
+mm:NetworkAdapter a owl:Class ;
+    rdfs:subClassOf mm:ComputerComponent ;
+    rdfs:label "Network adapter"@en .
+
+# TODO[lnfu] duplicated declarations
+mm:SpeakerDevice a owl:Class ; # ComputerInput.kif,HouseholdAppliances.kif,Mid-level-ontology.kif (SUMO)
+    rdfs:subClassOf sumo:ElectricDevice ;
+    rdfs:label "Speaker device"@en .
+
+mm:ComputerHardware a owl:Class ;
+    rdfs:subClassOf mm:Product ;
+    rdfs:label "Computer hardware"@en . # ComputerInput.kif,QoSontology.kif (SUMO)
+
+# Object properties
+mm:connected a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:domain sumo:Object ;
+    rdfs:range sumo:Object ;
+    rdfs:label "connected"@en .
+
+mm:stereoPairWith a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:domain mm:Camera ;
+    rdfs:range mm:Camera ;
+    rdfs:label "stereo pair with"@en .
+
+mm:hasFirmware a owl:ObjectProperty ;
+    rdfs:range observable:Software ;
+    rdfs:label "has firmware"@en ;
+    rdfs:comment "Links a device to the firmware release it runs. The version lives in the firmware's observable:SoftwareFacet."@en .
+
+# Speeds are qudt:QuantityValue nodes (qudt:numericValue + qudt:hasUnit).
+# USB speed modes: HIGH (USB 2) = 480 Mbit/s, SUPER (USB 3) = 5 Gbit/s.
+mm:linkSpeed a owl:ObjectProperty ; rdfs:range qudt:QuantityValue ; rdfs:label "link speed"@en .
+
+mm:usbSpeed a owl:ObjectProperty ; rdfs:range qudt:QuantityValue ; rdfs:label "USB speed"@en .
+
+# Datatype properties
+mm:checksum a owl:DatatypeProperty ; rdfs:label "checksum"@en .
+
+mm:mxId a owl:DatatypeProperty ; rdfs:label "Luxonis MxId"@en .
+
+mm:boardRevision a owl:DatatypeProperty ; rdfs:label "board revision"@en .
+
+mm:hardwareConfig a owl:DatatypeProperty ; rdfs:label "hardware config"@en .
+
+mm:usbPath a owl:DatatypeProperty ; rdfs:label "USB path"@en .
+
+mm:sensorChip a owl:DatatypeProperty ; rdfs:label "sensor chip"@en .
+
+mm:resolution a owl:DatatypeProperty ; rdfs:label "resolution"@en .
+
+mm:shutterType a owl:DatatypeProperty ; rdfs:label "shutter type"@en .
+
+mm:boardSocket a owl:DatatypeProperty ; rdfs:label "board socket"@en .
+
+mm:interfaceName a owl:DatatypeProperty ; rdfs:label "interface name"@en .
+
+mm:chip a owl:DatatypeProperty ; rdfs:label "chip"@en .
+
+mm:pciAddress a owl:DatatypeProperty ; rdfs:label "PCI address"@en .
+
+mm:driver a owl:DatatypeProperty ; rdfs:label "driver"@en .
+
+mm:connectionName a owl:DatatypeProperty ; rdfs:label "connection name"@en .

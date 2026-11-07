@@ -1,0 +1,11 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix observable: <https://ontology.unifiedcyberontology.org/uco/observable/> .
+@prefix mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-uco> a owl:Ontology ;
+    rdfs:comment "Alignment of mm platform classes to UCO 1.5.0 observable."@en ;
+    owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform> .
+
+mm:Computer rdfs:subClassOf observable:Computer .
+mm:NetworkAdapter rdfs:subClassOf observable:NetworkInterface .

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<catalog prefer="public" xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
+    <uri id="Imports Wizard Entry" name="http://purl.org/1872.1-owl/rtr-merged"
+        uri="https://opensource.ieee.org/rtr/robot_task_representation_ontology/-/raw/main/rtr-merged.owl" />
+    <uri id="Imports Wizard Entry" name="http://purl.org/ieee1872-owl/corax"
+        uri="https://raw.githubusercontent.com/srfiorini/IEEE1872-owl/refs/heads/master/corax.owl" />
+    <uri id="Imports Wizard Entry" name="http://purl.org/ieee1872-owl/cora"
+        uri="https://raw.githubusercontent.com/srfiorini/IEEE1872-owl/refs/heads/master/cora.owl" />
+    <uri id="Imports Wizard Entry" name="http://purl.org/ieee1872-owl/pos"
+        uri="https://raw.githubusercontent.com/srfiorini/IEEE1872-owl/refs/heads/master/pos.owl" />
+    <uri id="Imports Wizard Entry" name="http://purl.org/ieee1872-owl/rparts"
+        uri="https://raw.githubusercontent.com/srfiorini/IEEE1872-owl/refs/heads/master/rparts.owl" />
+    <!-- UCO 1.5.0 (observable and its import closure) -->
+    <uri name="https://ontology.unifiedcyberontology.org/uco/observable/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/uco/observable/observable.ttl" />
+    <uri name="https://ontology.unifiedcyberontology.org/uco/action/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/uco/action/action.ttl" />
+    <uri name="https://ontology.unifiedcyberontology.org/uco/configuration/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/uco/configuration/configuration.ttl" />
+    <uri name="https://ontology.unifiedcyberontology.org/uco/core/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/uco/core/core.ttl" />
+    <uri name="https://ontology.unifiedcyberontology.org/uco/identity/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/uco/identity/identity.ttl" />
+    <uri name="https://ontology.unifiedcyberontology.org/uco/location/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/uco/location/location.ttl" />
+    <uri name="https://ontology.unifiedcyberontology.org/uco/pattern/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/uco/pattern/pattern.ttl" />
+    <uri name="https://ontology.unifiedcyberontology.org/uco/types/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/uco/types/types.ttl" />
+    <uri name="https://ontology.unifiedcyberontology.org/uco/vocabulary/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/uco/vocabulary/vocabulary.ttl" />
+    <uri name="https://ontology.unifiedcyberontology.org/co/1.5.0"
+        uri="https://raw.githubusercontent.com/ucoProject/UCO/1.5.0/ontology/co/co.ttl" />
+    <!-- Collections Ontology: the http://purl.org/co PURL returns 404; use the commit UCO 1.5.0
+    pins -->
+    <uri name="http://purl.org/co"
+        uri="https://raw.githubusercontent.com/collections-ontology/collections-ontology/619e7b02646321174635fd04be658e338bf7d1d7/collections.owl" />
+    <!-- W3C SOSA -->
+    <uri name="http://www.w3.org/ns/sosa/" uri="https://www.w3.org/ns/sosa/sosa.ttl"/>
+    <!-- ETSI SAREF core v4.1.1 -->
+    <uri name="https://saref.etsi.org/core/v4.1.1/" uri="https://saref.etsi.org/core/v4.1.1/saref.ttl"/>
+    <group id="Folder Repository, directory=, recursive=true, Auto-Update=true, version=2"
+        prefer="public" xml:base="" />
+    <!-- mm modules -->
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform"
+        uri="schema/platform.ttl" />
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-tasks"
+        uri="schema/tasks.ttl" />
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-external-terms"
+        uri="schema/external-terms.ttl" />
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-uco"
+        uri="alignments/uco.ttl" />
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-sosa"
+        uri="alignments/sosa.ttl" />
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-saref"
+        uri="alignments/saref.ttl" />
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-system"
+        uri="data/platform/system.ttl" />
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-sensors"
+        uri="data/platform/sensors.ttl" />
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-network"
+        uri="data/platform/network.ttl" />
+    <uri name="http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-sites"
+        uri="data/sites/infrastructure.ttl" />
+</catalog>

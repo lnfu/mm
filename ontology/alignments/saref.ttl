@@ -1,0 +1,14 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix saref: <https://saref.etsi.org/core/> .
+@prefix mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-saref> a owl:Ontology ;
+    rdfs:comment "Alignment of mm platform classes to ETSI SAREF core v4.1.1 (classes only; SAREF properties overlap UCO DeviceFacet)."@en ;
+    owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform>, <https://saref.etsi.org/core/v4.1.1/> .
+
+mm:MeasuringDevice rdfs:subClassOf saref:Sensor .
+mm:Camera rdfs:subClassOf saref:Sensor .
+mm:Microphone rdfs:subClassOf saref:Sensor .
+mm:Computer rdfs:subClassOf saref:Device .
+mm:SpeakerDevice rdfs:subClassOf saref:Device .

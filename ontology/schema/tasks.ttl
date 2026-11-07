@@ -1,0 +1,6 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-tasks> a owl:Ontology ;
+    rdfs:comment "Task classes and properties, built on IEEE 1872.1 RTR. Task instances go in data/tasks/."@en ;
+    owl:imports <http://purl.org/1872.1-owl/rtr-merged>, <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform> .

@@ -1,0 +1,14 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology> a owl:Ontology ;
+    owl:imports
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform>,
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-tasks>,
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-external-terms>,
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-uco>,
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-sosa>,
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-saref>,
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-system>,
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-sensors>,
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-platform-network>,
+        <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-data-sites> .

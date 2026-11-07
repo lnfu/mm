@@ -1,0 +1,12 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix schema: <https://schema.org/> .
+
+<http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-external-terms> a owl:Ontology ;
+    rdfs:comment "Declarations of external terms used without importing their ontology (QUDT imports 4 more modules; schema.org is not OWL)."@en .
+
+qudt:QuantityValue a owl:Class .
+qudt:numericValue a owl:DatatypeProperty .
+qudt:hasUnit a owl:ObjectProperty .
+schema:productionDate a owl:DatatypeProperty .
