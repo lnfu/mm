@@ -1,0 +1,19 @@
+PREFIX core:       <https://ontology.unifiedcyberontology.org/uco/core/>
+PREFIX observable: <https://ontology.unifiedcyberontology.org/uco/observable/>
+
+# Every IP address, its owner, and the subnet it belongs to.
+# An empty ?subnet means no Contained_Within relationship was recorded (prefix length unknown).
+SELECT ?owner ?ip ?subnet WHERE {
+  ?owner core:hasFacet ?nif .
+  ?nif a observable:NetworkInterfaceFacet ;
+       observable:ip ?ipObj .
+  ?ipObj core:hasFacet/observable:addressValue ?ip .
+  OPTIONAL {
+    ?rel a observable:ObservableRelationship ;
+         core:source ?ipObj ;
+         core:target ?sn ;
+         core:kindOfRelationship "Contained_Within" .
+    ?sn core:name ?subnet .
+  }
+}
+ORDER BY ?subnet ?ip

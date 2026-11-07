@@ -1,0 +1,26 @@
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX sumo: <http://purl.org/ieee1872-owl/sumo-cora#>
+PREFIX core: <https://ontology.unifiedcyberontology.org/uco/core/>
+PREFIX observable: <https://ontology.unifiedcyberontology.org/uco/observable/>
+PREFIX mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/>
+
+# Device inventory: model, serial number, and firmware version of every device.
+# Roots are listed explicitly because the SUMO and UCO hierarchies are remote,
+# so rdfs:subClassOf* only walks the local mm classes.
+SELECT DISTINCT ?device ?label ?model ?serial ?firmware
+WHERE {
+  VALUES ?root { sumo:Device sumo:ElectricDevice observable:Device }
+  ?device a / rdfs:subClassOf* ?root .
+
+  OPTIONAL { ?device rdfs:label ?label . }
+  OPTIONAL {
+    ?device core:hasFacet ?df .
+
+    ?df a observable:DeviceFacet .
+
+    OPTIONAL { ?df observable:model ?model . }
+    OPTIONAL { ?df observable:serialNumber ?serial . }
+  }
+  OPTIONAL { ?device mm:hasFirmware / core:hasFacet / observable:version ?firmware . }
+}
+ORDER BY ?device

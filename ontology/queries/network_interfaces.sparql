@@ -1,0 +1,21 @@
+PREFIX core: <https://ontology.unifiedcyberontology.org/uco/core/>
+PREFIX observable: <https://ontology.unifiedcyberontology.org/uco/observable/>
+
+# Every object with a network interface facet.
+SELECT ?iface ?mac ?ip ?ssid
+WHERE {
+  ?iface core:hasFacet ?nif .
+
+  ?nif a observable:NetworkInterfaceFacet .
+
+  OPTIONAL { ?nif observable:macAddress / core:hasFacet / observable:addressValue ?mac . }
+  OPTIONAL { ?nif observable:ip / core:hasFacet / observable:addressValue ?ip . }
+  OPTIONAL {
+    [  ] core:hasFacet ?ncf, ?wf .
+
+    ?ncf observable:src ?iface .
+
+    ?wf observable:ssid ?ssid .
+  }
+}
+ORDER BY ?iface ?ip

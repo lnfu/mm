@@ -1,0 +1,19 @@
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX sumo: <http://purl.org/ieee1872-owl/sumo-cora#>
+PREFIX mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/>
+
+# Camera specs, the board each camera sits on, and its stereo partner.
+SELECT ?camera ?socket ?sensorChip ?resolution ?shutter ?board ?stereoPartner
+WHERE {
+  ?camera a mm:Camera .
+
+  OPTIONAL { ?camera mm:boardSocket ?socket . }
+  OPTIONAL { ?camera mm:sensorChip ?sensorChip . }
+  OPTIONAL { ?camera mm:resolution ?resolution . }
+  OPTIONAL { ?camera mm:shutterType ?shutter . }
+  OPTIONAL { ?camera sumo:part ?board .
+
+    ?board mm:mxId [  ] . }
+  OPTIONAL { ?camera mm:stereoPairWith | ^ mm:stereoPairWith ?stereoPartner . }
+}
+ORDER BY ?board ?socket ?camera

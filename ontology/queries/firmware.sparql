@@ -1,0 +1,13 @@
+PREFIX rdfs:       <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX core:       <https://ontology.unifiedcyberontology.org/uco/core/>
+PREFIX observable: <https://ontology.unifiedcyberontology.org/uco/observable/>
+PREFIX mm:         <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/>
+
+# Firmware releases, their versions, and which devices run each one.
+SELECT ?firmware ?label ?version (GROUP_CONCAT(STRAFTER(STR(?device), STR(mm:)); separator=", ") AS ?devices) WHERE {
+  ?device mm:hasFirmware ?firmware .
+  ?firmware core:hasFacet/observable:version ?version .
+  OPTIONAL { ?firmware rdfs:label ?label . }
+}
+GROUP BY ?firmware ?label ?version
+ORDER BY ?firmware

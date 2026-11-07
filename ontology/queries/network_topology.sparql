@@ -1,0 +1,11 @@
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX mm:   <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/>
+
+# Physical/link connections between devices (mm:connected), with labels.
+# mm:connected is symmetric; each edge is listed once, in the direction it was asserted.
+SELECT ?a ?aLabel ?b ?bLabel WHERE {
+  ?a mm:connected ?b .
+  OPTIONAL { ?a rdfs:label ?aLabel . }
+  OPTIONAL { ?b rdfs:label ?bLabel . }
+}
+ORDER BY ?a ?b
