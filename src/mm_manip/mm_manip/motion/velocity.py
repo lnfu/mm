@@ -1,12 +1,9 @@
 from dataclasses import dataclass, field
 from itertools import pairwise
 
-BASE_X = "base_x"
-BASE_Y = "base_y"
-BASE_THETA = "base_theta"
-BASE_JOINTS = (BASE_X, BASE_Y, BASE_THETA)
+from mm_ik.joints import BASE_THETA, BASE_X, BASE_Y
 
-# m/s for lift, arm and the base, rad/s for the wrist and the base's turn.
+# m/s or rad/s
 DEFAULT_MAX_VELOCITY = {
     BASE_X: 0.05,
     BASE_Y: 0.05,
@@ -17,7 +14,7 @@ DEFAULT_MAX_VELOCITY = {
     "wrist_pitch_joint": 0.6,
     "wrist_roll_joint": 0.6,
 }
-# How close each joint must end to the last waypoint (m or rad).
+# m or rad, at the last waypoint
 DEFAULT_TOLERANCE = {
     BASE_X: 0.01,
     BASE_Y: 0.01,
@@ -34,16 +31,11 @@ DEFAULT_TOLERANCE = {
 class TrackingGains:
     max_velocity: dict = field(default_factory=lambda: dict(DEFAULT_MAX_VELOCITY))
     tolerance: dict = field(default_factory=lambda: dict(DEFAULT_TOLERANCE))
-    gain: float = 2.0  # 1/s, position error -> velocity correction
-    min_segment: float = 0.3  # s, shortest time for one segment
+    gain: float = 2.0  # 1/s
+    min_segment: float = 0.3  # s
 
 
 class PathTracker:
-    """A timed path from `start` through `points` (joint dicts with the same keys).
-
-    Joints in `start` but not in the points are left out.
-    """
-
     def __init__(self, start: dict, points: list, gains: TrackingGains):
         if not points:
             raise ValueError("no waypoints")
@@ -60,7 +52,7 @@ class PathTracker:
         return self._times[-1]
 
     def desired(self, t: float):
-        """(position, velocity) dicts the path asks for at time t (s from start)."""
+        """(position, velocity) at t s from the start."""
         if t >= self.duration:
             end = self._knots[-1]
             return dict(end), dict.fromkeys(self.joints, 0.0)
@@ -74,10 +66,7 @@ class PathTracker:
         return position, velocity
 
     def command(self, t: float, current: dict):
-        """(velocity command, position error, done) at time t for joints at `current`.
-
-        done once the path has ended and every joint is within its tolerance.
-        """
+        """(velocity command, position error, done). Done: path ended, all in tolerance."""
         position, velocity = self.desired(t)
         error = {j: position[j] - current[j] for j in self.joints}
         done = t >= self.duration and all(

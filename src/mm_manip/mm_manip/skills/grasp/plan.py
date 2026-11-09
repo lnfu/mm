@@ -3,24 +3,17 @@ from dataclasses import dataclass, field
 import numpy as np
 import pinocchio as pin
 
-from mm_ik.solver import ARM_JOINT_NAMES, IKSolver
+from mm_ik.joints import ARM_JOINT_NAMES, BASE_THETA, BASE_X, BASE_Y
+from mm_ik.solver import IKSolver
 
-from ...motion.planning import PlanningError, arm_only, base_only, check
+from ...motion.planning import reach_path
 
 # No cost about z: the wrist yaw can aim, and the gripper stays level.
 FREE_YAW_ORIENTATION_COST = (0.5, 0.5, 0.0)
-
-
 # The base translates. It turns and moves the arm less.
 BASE_STAGE_POSTURE_COST = 1e-2
-
-
-BASE_STAGE_POSTURE_COSTS = {"base_x": 1e-4, "base_y": 1e-4, "base_theta": 1e-1}
-
-
+BASE_STAGE_POSTURE_COSTS = {BASE_X: 1e-4, BASE_Y: 1e-4, BASE_THETA: 1e-1}
 MAX_AIM_YAW = np.deg2rad(10)
-
-
 MAX_BASE_ROTATION = np.deg2rad(45)
 
 
@@ -105,41 +98,21 @@ def plan_grasp(
     base_posture=None,
 ) -> GraspPlan:
     """Try the arm alone. If it cannot reach, move the base once to the pre-grasp."""
-    accept = {
-        "accept_position_error": accept_position_error,
-        "accept_orientation_error": accept_orientation_error,
-    }
     poses = grasp_poses(center, rotation, pregrasp_distance, n_waypoints, lift_height)
-    try:
-        return _plan(arm_solver, arm_solver, start, poses, None, accept)
-    except PlanningError as arm_error:
-        if base_solver is None:
-            raise
-        try:
-            return _plan(base_solver, arm_solver, start, poses, base_posture, accept)
-        except PlanningError as base_error:
-            raise PlanningError(
-                f"{base_error} (arm alone: {arm_error})"
-            ) from base_error
-
-
-def _plan(solver, arm_solver, start, poses, posture, accept) -> GraspPlan:
-    pre = solver.solve(start, poses["pregrasp"], posture=posture)
-    check(pre, "pre-grasp", **accept)
-    base = base_only(pre.joints)
-    moved = solver.base_motion(pre.joints)
-
-    targets = [moved.actInv(p) for p in poses["approach"][1:] + [poses["lift"]]]
-    arm = []
-    joints = arm_only(pre.joints)
-    for i, target in enumerate(targets):
-        r = arm_solver.solve(joints, target)
-        check(
-            r,
-            f"approach waypoint {i + 1}" if i < len(targets) - 1 else "lift",
-            **accept,
-        )
-        joints = arm_only(r.joints)
-        arm.append(joints)
-
-    return GraspPlan(base, arm_only(pre.joints), arm[:-1], arm[-1], poses)
+    approach = poses["approach"]
+    names = (
+        ["pre-grasp"]
+        + [f"approach waypoint {i}" for i in range(1, len(approach))]
+        + ["lift"]
+    )
+    base, path = reach_path(
+        arm_solver,
+        start,
+        approach + [poses["lift"]],
+        names,
+        base_solver,
+        base_posture,
+        accept_position_error=accept_position_error,
+        accept_orientation_error=accept_orientation_error,
+    )
+    return GraspPlan(base, path[0], path[1:-1], path[-1], poses)

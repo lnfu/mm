@@ -1,7 +1,7 @@
 import pytest
 
-from mm_ik.solver import ARM_JOINT_NAMES
-from mm_manip.motion.velocity import BASE_JOINTS, PathTracker, TrackingGains
+from mm_ik.joints import ARM_JOINT_NAMES, BASE_JOINTS
+from mm_manip.motion.velocity import PathTracker, TrackingGains
 
 GAINS = TrackingGains(
     max_velocity={"lift": 0.1, "yaw": 1.0},

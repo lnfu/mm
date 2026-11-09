@@ -8,7 +8,7 @@ parameters named `<field>.<key>`, e.g. `grasp.start_pose.lift_joint`.
 from dataclasses import asdict, dataclass, field
 from typing import ClassVar
 
-from mm_ik.solver import ARM_JOINT_NAMES
+from mm_ik.joints import ARM_JOINT_NAMES
 
 from .motion.trajectory import DEFAULT_MAX_STEP
 from .motion.velocity import DEFAULT_MAX_VELOCITY, DEFAULT_TOLERANCE

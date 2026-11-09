@@ -2,11 +2,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from mm_ik.joints import BASE_JOINTS, BASE_THETA, BASE_X, BASE_Y, arm_only
 from mm_ik.solver import IKSolver
 
 from ...errors import ArticulateFailed, OutOfReach
-from ...motion.planning import PlanningError, arm_only, reach, solve_waypoints
-from ...motion.velocity import BASE_JOINTS, BASE_THETA, BASE_X, BASE_Y
+from ...motion.planning import PlanningError, reach, solve_waypoints
 from .door import Arc
 
 # Posture costs. The arm joints have 1e-3.

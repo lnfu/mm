@@ -7,10 +7,12 @@ import time
 
 from rclpy.utilities import remove_ros_args
 
+from mm_ik.joints import BASE_THETA, BASE_X, BASE_Y
+
 from ..cancel import CancelToken
 from ..config import ArticulateConfig
 from ..motion.base_control import displacement
-from ..motion.velocity import BASE_THETA, BASE_X, BASE_Y, TrackingGains
+from ..motion.velocity import TrackingGains
 from .common import run_tool, wait_for
 
 

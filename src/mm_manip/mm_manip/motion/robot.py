@@ -14,8 +14,14 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
-from mm_ik.model import ARM_SEGMENTS
-from mm_ik.solver import ARM_JOINT_NAMES
+from mm_ik.joints import (
+    ARM_JOINT_NAMES,
+    ARM_SEGMENTS,
+    BASE_JOINTS,
+    BASE_THETA,
+    BASE_X,
+    BASE_Y,
+)
 
 from ..cancel import POLL, CancelToken
 from ..errors import Canceled, SkillError
@@ -34,14 +40,7 @@ from .trajectory import (
     moving_joints,
     split_long_moves,
 )
-from .velocity import (
-    BASE_JOINTS,
-    BASE_THETA,
-    BASE_X,
-    BASE_Y,
-    PathTracker,
-    TrackingGains,
-)
+from .velocity import PathTracker, TrackingGains
 
 # /joint_vel: lift and arm get a velocity (m/s). The wrist joints get a
 # distance (rad), because the driver does move_by(value * duration).

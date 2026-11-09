@@ -1,3 +1,5 @@
+from mm_ik.joints import BASE_THETA, BASE_X, BASE_Y
+
 from ..errors import OutOfReach
 
 
@@ -14,9 +16,9 @@ def approach_with_base(
         if moves == max_moves:
             raise OutOfReach(f"still out of arm reach after {moves} base moves")
         ctx.robot.move_base(
-            plan.base.get("base_x", 0.0),
-            plan.base.get("base_y", 0.0),
-            plan.base.get("base_theta", 0.0),
+            plan.base.get(BASE_X, 0.0),
+            plan.base.get(BASE_Y, 0.0),
+            plan.base.get(BASE_THETA, 0.0),
             ctx.cancel,
             gains,
         )

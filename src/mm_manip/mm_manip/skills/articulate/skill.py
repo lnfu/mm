@@ -3,11 +3,11 @@ from enum import IntEnum
 
 import numpy as np
 
+from mm_ik.joints import BASE_JOINTS, BASE_THETA, BASE_X, BASE_Y, arm_only
 from mm_ik.solver import IKSolver
 
 from ...errors import ArticulateFailed
-from ...motion.planning import arm_only
-from ...motion.velocity import BASE_JOINTS, BASE_THETA, BASE_X, BASE_Y, TrackingGains
+from ...motion.velocity import TrackingGains
 from .door import (
     Door,
     DoorType,
