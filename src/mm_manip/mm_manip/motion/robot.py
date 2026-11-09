@@ -464,6 +464,10 @@ class Robot:
     # on an object: such a goal only ends at the driver's action_timeout. So both
     # wait for the fingers to stop moving instead.
 
+    def set_gripper(self, gripper: "GripperSettings"):
+        """Use these gripper settings from the next gripper move on."""
+        self._gripper = gripper
+
     def open_gripper(self, should_cancel):
         """Open the gripper; returns once it is open (at the target or the stop)."""
         self._run_gripper(self._gripper.open, should_cancel)

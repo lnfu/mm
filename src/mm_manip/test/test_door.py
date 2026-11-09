@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import cv2
 import numpy as np
@@ -14,6 +15,7 @@ from mm_manip.perception.door import (
     build_prompt,
     encode_jpeg,
     fit_plane,
+    hinge_edge_problem,
     intersect_plane,
     locate_door,
     parse_response,
@@ -34,6 +36,8 @@ def answer(**overrides):
         "top_right": [100, 750],
         "bottom_left": [900, 250],
         "bottom_right": [900, 750],
+        "left_edge_visible": True,
+        "right_edge_visible": True,
     }
     data.update(overrides)
     return json.dumps(data)
@@ -78,12 +82,53 @@ def test_parse_door_types(name, door_type):
         answer(handle_type="lever"),
         answer(handle=[1]),
         answer(top_left="here"),
+        answer(left_edge_visible="yes"),
+        answer(right_edge_visible=None),
         json.dumps({"type": "prismatic", "handle": [1, 2]}),  # no corners
     ],
 )
 def test_parse_rejects_other_answers(text):
     with pytest.raises(ValueError):
         parse_response(text, W, H)
+
+
+def test_parse_reads_edge_visibility():
+    keypoints = parse_response(answer(right_edge_visible=False), W, H)
+    assert keypoints.sides_visible == {"left": True, "right": False}
+
+
+def test_prompt_asks_for_edge_visibility():
+    prompt = build_prompt("the door")
+    assert "left_edge_visible" in prompt and "right_edge_visible" in prompt
+
+
+@pytest.mark.parametrize("door_type", ["revolute_left", "revolute_right"])
+def test_whole_door_in_view_has_no_hinge_problem(door_type):
+    keypoints = parse_response(answer(type=door_type), W, H)
+    assert hinge_edge_problem(keypoints) is None
+
+
+def test_hinge_side_reported_cut_off():
+    keypoints = parse_response(
+        answer(type="revolute_right", right_edge_visible=False), W, H
+    )
+    assert "right (hinge) edge" in hinge_edge_problem(keypoints)
+
+
+def test_handle_side_cut_off_is_fine():
+    keypoints = parse_response(
+        answer(type="revolute_right", left_edge_visible=False), W, H
+    )
+    assert hinge_edge_problem(keypoints) is None
+
+
+def test_drawer_has_no_hinge_problem():
+    keypoints = parse_response(
+        answer(type="prismatic", left_edge_visible=False, right_edge_visible=False),
+        W,
+        H,
+    )
+    assert hinge_edge_problem(keypoints) is None
 
 
 def test_door_types_match_the_action():
@@ -168,7 +213,11 @@ def wall_scene(z_door=0.8, z_bg=2.0):
         "bottom_right": (480.0, 432.0),
     }
     return depth, DoorKeypoints(
-        DoorType.REVOLUTE_LEFT, HandleType.KNOB, (440.0, 240.0), corners
+        DoorType.REVOLUTE_LEFT,
+        HandleType.KNOB,
+        (440.0, 240.0),
+        corners,
+        {"left": True, "right": True},
     )
 
 
@@ -181,6 +230,25 @@ def test_locate_door_puts_corners_on_the_panel_despite_edge_depth():
     assert door.corners["top_left"] == pytest.approx([-0.256, -0.3072, 0.8], abs=2e-3)
     assert door.corners["bottom_right"] == pytest.approx([0.256, 0.3072, 0.8], abs=2e-3)
     assert door.normal == pytest.approx([0, 0, -1], abs=1e-3)
+    assert not door.handle_from_depth  # a flat door: the handle is on the plane
+
+
+def test_locate_door_measures_a_protruding_handle_in_depth():
+    depth, keypoints = wall_scene()
+    # A 5 px wide vertical bar 4 cm in front of the door, narrower than the
+    # patch around the handle pixel (440, 240): the door around it is ignored.
+    depth[200:280, 438:443] = 760
+    door = locate_door(keypoints, depth, K)
+    assert door.handle_from_depth
+    assert door.handle == pytest.approx([120 * 0.76 / 500, 0.0, 0.76], abs=2e-3)
+
+
+def test_locate_door_falls_back_to_the_plane_without_handle_depth():
+    depth, keypoints = wall_scene()
+    depth[230:251, 430:451] = 0  # no depth around the handle
+    door = locate_door(keypoints, depth, K)
+    assert not door.handle_from_depth
+    assert door.handle == pytest.approx([0.192, 0.0, 0.8], abs=2e-3)
 
 
 def test_locate_door_without_depth_raises():
@@ -204,6 +272,12 @@ def test_door_transform():
     assert moved.corners["top_left"] == pytest.approx([0, 0, 1.0])
     assert moved.normal == pytest.approx([0, 0, 1.0])  # direction: not translated
     assert moved.type == DoorType.REVOLUTE_RIGHT
+    assert not moved.handle_from_depth
+    assert (
+        replace(door, handle_from_depth=True)
+        .transform(rotation, [0, 0, 0])
+        .handle_from_depth
+    )
     assert moved.handle_type == HandleType.KNOB
 
 

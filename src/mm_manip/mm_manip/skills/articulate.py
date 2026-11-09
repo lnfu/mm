@@ -11,7 +11,7 @@ arc is planned with a few base-turn strategies and the best plan is kept: the on
 opening furthest, then moving the base least. It may stop short of the angle asked.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import IntEnum
 
 import numpy as np
@@ -132,7 +132,21 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
         door = door_from_points(goal.handle, goal.hinge)
     else:
         door = ctx.locator.locate(goal.prompt, ctx.should_cancel)
-        door = with_handle_offset(door, cfg.handle_offset)
+        if door.handle_from_depth:
+            door, protrusion, moved = into_handle(door, cfg.handle_grasp_depth)
+            ctx.log.info(
+                f"handle front {protrusion * 100:.1f} cm out of the door; "
+                f"grasping {moved * 100:.1f} cm behind it"
+            )
+        else:
+            ctx.log.warn(
+                "no handle in depth in front of the door: using the door plane "
+                f"+ handle_offset {cfg.handle_offset} m"
+            )
+            door = with_handle_offset(door, cfg.handle_offset)
+        # HACK: grasps land left of and above the handle; shift 1.5 cm right (-y)
+        # and 3.5 cm down (-z) in base_link.
+        door = replace(door, handle=door.handle + [0.0, -0.015, -0.05])
     ctx.observer.door(door)
     if door.type not in (DoorType.REVOLUTE_LEFT, DoorType.REVOLUTE_RIGHT):
         raise NotImplementedError(f"opening a {door.type.name.lower()} door")
@@ -164,6 +178,7 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     else:
         ctx.log.warn("use_gripper is false: not opening the gripper")
     ctx.robot.follow_path([plan.grasp], ctx.should_cancel, gains)
+    _log_grasp_error(ctx, door, arc, plan, shared)
 
     ctx.phase(Phase.GRASPING)
     if shared.use_gripper:
@@ -175,6 +190,43 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     ctx.phase(Phase.OPENING)
     ctx.robot.follow_path(plan.path, ctx.should_cancel, gains)
     return outcome
+
+
+def _log_grasp_error(ctx, door, arc, plan, shared):
+    """Log where the gripper is against the handle, planned and measured (FK of
+    the joint states, with the planned base motion: odometry is accurate), in the
+    base frame at the start, split along the door (+ toward the hinge), out of
+    it (+ toward the robot) and up. Debugging only."""
+    try:
+        fk = IKSolver(
+            ctx.robot.urdf,
+            ("x", "y", "theta"),
+            ee_frame=shared.ee_frame,
+            base_frame=shared.base_frame,
+        ).fk
+        base = {j: plan.grasp.get(j, 0.0) for j in BASE_JOINTS}
+        measured_joints = ctx.robot.arm_joints()
+        target = arc.poses[0].translation
+        planned = fk({**_arm(plan.grasp), **base}).translation
+        measured = fk({**measured_joints, **base}).translation
+    except Exception as e:  # noqa: BLE001  debugging must not fail the goal
+        ctx.log.warn(f"grasp error check: {e}")
+        return
+    out = _horizontal(door.normal)
+    along = _horizontal(hinge_axis(door) - door.handle)
+
+    def split(p):
+        e = p - target
+        return f"along {e @ along:+.3f}, out {e @ out:+.3f}, up {e[2]:+.3f}"
+
+    joints = ", ".join(
+        f"{j.removesuffix('_joint')} {plan.grasp[j]:.3f}/{measured_joints[j]:.3f}"
+        for j in _arm(plan.grasp)
+    )
+    ctx.log.info(
+        f"grasp error (m, gripper - handle): planned {split(planned)}; "
+        f"measured {split(measured)}; joints planned/measured: {joints}"
+    )
 
 
 def door_from_points(handle, hinge) -> Door:
@@ -197,10 +249,20 @@ def door_from_points(handle, hinge) -> Door:
     return Door(door_type, HandleType.BAR_VERTICAL, handle, corners, normal)
 
 
+def into_handle(door: Door, depth: float, clearance: float = 0.005):
+    """(door, protrusion, moved): a depth-measured handle (its front surface)
+    moved `depth` into the door, toward the bar's middle, stopping `clearance`
+    short of the door plane. protrusion: how far the front surface stands out
+    of the plane; moved: how far it was moved (both m)."""
+    out = _horizontal(door.normal)
+    protrusion = float((door.handle - door.corners["top_left"]) @ door.normal)
+    moved = min(depth, max(protrusion - clearance, 0.0))
+    return replace(door, handle=door.handle - moved * out), protrusion, moved
+
+
 def with_handle_offset(door: Door, offset: float) -> Door:
     """The door with its handle moved `offset` out of the door plane (horizontally)."""
-    handle = door.handle + offset * _horizontal(door.normal)
-    return Door(door.type, door.handle_type, handle, door.corners, door.normal)
+    return replace(door, handle=door.handle + offset * _horizontal(door.normal))
 
 
 def hinge_axis(door: Door) -> np.ndarray:

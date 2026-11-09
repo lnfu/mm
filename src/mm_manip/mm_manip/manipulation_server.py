@@ -83,16 +83,7 @@ class ManipulationServer(Node):
             fjt_mode=cfg.fjt_mode,
             control_rate=cfg.control_rate,
             path_settle_timeout=cfg.path_settle_timeout,
-            gripper=GripperSettings(
-                joint=cfg.gripper_joint,
-                state_joint=cfg.gripper_state_joint,
-                open=cfg.gripper_open,
-                closed=cfg.gripper_closed,
-                closed_finger=cfg.gripper_closed_finger,
-                holding_margin=cfg.gripper_holding_margin,
-                stall_time=cfg.gripper_stall_time,
-                timeout=cfg.gripper_timeout,
-            ),
+            gripper=_gripper_settings(cfg),
             callback_group=group,
         )
         self._scene = Scene(self, base_frame=cfg.base_frame)
@@ -119,6 +110,7 @@ class ManipulationServer(Node):
             depth_compressed=cfg.depth_compressed,
             sync_slop=cfg.sync_slop,
             snapshot_timeout=cfg.snapshot_timeout,
+            ee_frame=cfg.ee_frame,
             callback_group=group,
         )
         self._ghost_pub = self.create_publisher(JointState, "~/ghost_joint_states", 1)
@@ -173,6 +165,7 @@ class ManipulationServer(Node):
         def should_cancel():
             return goal_handle.is_cancel_requested
 
+        self._robot.set_gripper(_gripper_settings(shared))
         return Context(
             robot=self._robot,
             locator=locator,
@@ -281,6 +274,19 @@ def _motion_message(shared, done: str) -> str:
     return "motion done (use_gripper is false, gripper not used)"
 
 
+def _gripper_settings(cfg) -> GripperSettings:
+    return GripperSettings(
+        joint=cfg.gripper_joint,
+        state_joint=cfg.gripper_state_joint,
+        open=cfg.gripper_open,
+        closed=cfg.gripper_closed,
+        closed_finger=cfg.gripper_closed_finger,
+        holding_margin=cfg.gripper_holding_margin,
+        stall_time=cfg.gripper_stall_time,
+        timeout=cfg.gripper_timeout,
+    )
+
+
 class _DoorFinder:
     """ctx.locator for articulate: the door Gemini points to, for this goal's config."""
 
@@ -302,6 +308,7 @@ class _DoorFinder:
             should_cancel,
             depth_band=cfg.door_depth_band,
             shrink=cfg.quad_shrink,
+            debug_dir=cfg.debug_dir,
         )
 
 

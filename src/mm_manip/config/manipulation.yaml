@@ -32,7 +32,7 @@ mm_manip:
     gripper_joint: gripper_joint # FJT command, driver units
     gripper_state_joint: gripper_finger_left_joint # /joint_states, finger rad
     gripper_open: 80.0 # past the mechanical stops: moves end when the fingers stop
-    gripper_closed: -10.0
+    gripper_closed: -40.0
     gripper_closed_finger: 0.0 # TODO[lnfu] finger rad when closed on nothing: measure
     gripper_holding_margin: 0.05 # rad: stopped farther than this = holding something
     gripper_stall_time: 0.3 # s still short of closed = holding something
@@ -101,7 +101,9 @@ mm_manip:
       image_max_side: 640 # px, the image is shrunk to this before upload
       quad_shrink: 0.15 # the door plane is fitted inside the corners, shrunk by this
       door_depth_band: 0.15 # m, around the median depth inside the door
-      handle_offset: 0.03 # m, how far the handle sticks out of the door
+      handle_offset: 0.01 # m out of the door plane, only when the handle is not seen in depth
+      handle_grasp_depth: 0.015 # m behind the handle's front surface seen in depth (>= 5 mm off the door)
+      debug_dir: "" # each Gemini look is saved here; "" = <ROS_LOG_DIR or ~/.ros/log>/door_debug
 
       n_waypoints: 10 # on the opening arc, the grasp pose included
       # Base turn strategies tried for the arc besides "free": the base turns this
@@ -124,9 +126,9 @@ mm_manip:
         wrist_pitch_joint: 0.6
         wrist_roll_joint: 0.6
       path_tolerance:
-        base_x: 0.01
-        base_y: 0.01
-        base_theta: 0.02
+        base_x: 0.005
+        base_y: 0.005
+        base_theta: 0.005
         lift_joint: 0.003
         arm_joint: 0.003
         wrist_yaw_joint: 0.01

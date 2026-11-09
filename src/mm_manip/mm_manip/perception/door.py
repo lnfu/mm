@@ -7,20 +7,23 @@ color image; GeminiDoorKeypoints is the one in use, a local model can replace it
 Corners sit on depth edges where single pixels often read the background or 0, so
 the 3D points are not read from depth directly: a plane is fitted to the depth
 inside the door, and each keypoint's camera ray is intersected with that plane.
+The handle sticks out of the door, so it is read from the depth around its pixel
+(the part in front of the plane), falling back to the plane where none is.
 """
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import IntEnum
 from typing import Protocol
 
 import cv2
 import numpy as np
 
-from .localize import mask_points
+from .localize import depth_to_meters, mask_points
 
 CORNERS = ("top_left", "top_right", "bottom_left", "bottom_right")
+SIDES = ("left", "right")
 
 
 class DoorType(IntEnum):
@@ -61,6 +64,9 @@ class DoorKeypoints:
     handle_type: HandleType
     handle: tuple
     corners: dict  # CORNERS name -> (u, v)
+    # SIDES name -> whether that vertical side of the door is wholly in view
+    # (not cut off by the image border, not hidden): where the hinge is.
+    sides_visible: dict
 
 
 class KeypointSource(Protocol):
@@ -86,6 +92,7 @@ class GeminiDoorKeypoints:
         self._client = client
         self._max_side = max_side
         self._jpeg_quality = jpeg_quality
+        self.last_answer = None  # Gemini's raw text, for debugging
 
     def keypoints(self, image, prompt, size, should_cancel) -> DoorKeypoints:
         text = self._client.ask(
@@ -94,6 +101,7 @@ class GeminiDoorKeypoints:
             build_prompt(prompt),
             should_cancel,
         )
+        self.last_answer = text
         return parse_response(text, *size)
 
 
@@ -117,13 +125,20 @@ Return only JSON, with no other text:
   "handle_type": "bar_vertical" | "bar_horizontal" | "knob" | "recessed" | "unknown",
   "handle": [y, x],
   "top_left": [y, x], "top_right": [y, x],
-  "bottom_left": [y, x], "bottom_right": [y, x]}}
+  "bottom_left": [y, x], "bottom_right": [y, x],
+  "left_edge_visible": true | false, "right_edge_visible": true | false}}
 type: revolute_left if the door's hinge is on its left side in the image,
 revolute_right if on its right side, prismatic for a drawer.
 handle_type: bar_vertical or bar_horizontal for a bar handle (by its long axis),
 knob for a single protruding knob, recessed for a recessed handle or none.
 handle: the center of its handle. top_left ... bottom_right: the corners of the
-door's front panel (the moving part), as they appear in the image.
+door's front panel (the moving part), as they appear in the image. If a corner
+is outside the image, give the point where that edge of the door leaves it.
+left_edge_visible: true only if the whole left vertical edge of the door's
+front panel, from its top corner to its bottom corner, is inside the image and
+not hidden; false if the image border cuts the door off on its left, or if you
+cannot see where the door ends on its left. right_edge_visible: the same for
+the right edge. Judge these from the image alone; do not guess.
 Points are [y, x], normalized to 0-1000."""
 
 
@@ -157,12 +172,47 @@ def parse_response(text: str, width: int, height: int) -> DoorKeypoints:
         y, x = point
         return (x / 1000.0 * width, y / 1000.0 * height)
 
+    def visible(side):
+        value = data.get(f"{side}_edge_visible")
+        if not isinstance(value, bool):
+            raise ValueError(
+                f"{side}_edge_visible: expected true or false, got {value!r}"
+            )
+        return value
+
     return DoorKeypoints(
         door_type,
         handle_type,
         pixel("handle"),
         {name: pixel(name) for name in CORNERS},
+        {side: visible(side) for side in SIDES},
     )
+
+
+def hinge_side(door_type: DoorType) -> str | None:
+    """The image side ("left"/"right") of a revolute door's hinge, else None."""
+    return {DoorType.REVOLUTE_LEFT: "left", DoorType.REVOLUTE_RIGHT: "right"}.get(
+        door_type
+    )
+
+
+def hinge_edge_problem(keypoints: DoorKeypoints) -> str | None:
+    """Why the hinge edge, and so the turning radius, cannot be trusted, or None.
+
+    The hinge axis is taken from the two corners on the hinge side; if that side
+    of the door is cut off, they lie on the image border instead and the radius
+    comes out too small. The keypoint source says whether each side is wholly in
+    view. Not revolute: None.
+    """
+    side = hinge_side(keypoints.type)
+    if side is None:
+        return None
+    if not keypoints.sides_visible[side]:
+        return (
+            f"the door's {side} (hinge) edge is not wholly in view, so its turning "
+            "radius is unknown: move the camera to see the whole door"
+        )
+    return None
 
 
 def quad_mask(corners: dict, shape, shrink: float = 0.15) -> np.ndarray:
@@ -286,16 +336,49 @@ class Door:
     handle: np.ndarray  # (3,)
     corners: dict  # CORNERS name -> (3,)
     normal: np.ndarray  # (3,) unit, out of the door toward the camera
+    # True: handle is the handle's front surface, measured in depth. False: it
+    # is on the door plane, and the handle sticks out of it by an unknown amount.
+    handle_from_depth: bool = False
 
     def transform(self, rotation, translation) -> "Door":
         rotation, translation = np.asarray(rotation), np.asarray(translation)
-        return Door(
-            self.type,
-            self.handle_type,
-            rotation @ self.handle + translation,
-            {n: rotation @ p + translation for n, p in self.corners.items()},
-            rotation @ self.normal,
+        return replace(
+            self,
+            handle=rotation @ self.handle + translation,
+            corners={n: rotation @ p + translation for n, p in self.corners.items()},
+            normal=rotation @ self.normal,
         )
+
+
+def measure_handle(
+    pixel,
+    depth: np.ndarray,
+    K: np.ndarray,
+    normal: np.ndarray,
+    d: float,
+    min_protrusion: float = 0.01,
+    half: int = 4,
+) -> np.ndarray | None:
+    """The handle's front surface in the camera optical frame, from depth.
+
+    The median of the depth points in the (2 half + 1)^2 patch around `pixel`
+    that stand at least `min_protrusion` (m) in front of the door plane n.p = d:
+    the handle, not the door around it. None if there are none (a recessed or
+    flat handle, or no depth there).
+    """
+    u, v = round(pixel[0]), round(pixel[1])
+    v0, u0 = max(v - half, 0), max(u - half, 0)
+    z = depth_to_meters(depth[v0 : v + half + 1, u0 : u + half + 1])
+    rows, cols = np.nonzero(np.isfinite(z) & (z > 0))
+    if rows.size == 0:
+        return None
+    zs = z[rows, cols]
+    points = pixel_rays(np.column_stack((cols + u0, rows + v0)), K) * zs[:, None]
+    # The normal faces the camera at the origin, so the camera side is n.p - d > 0.
+    handle = points[points @ normal - d >= min_protrusion]
+    if len(handle) == 0:
+        return None
+    return np.median(handle, axis=0)
 
 
 def locate_door(
@@ -310,6 +393,8 @@ def locate_door(
     The keypoints are pixels of `depth` (parse_response with the depth image's
     size: Gemini's 0-1000 coordinates do not depend on the resolution), and K the
     intrinsics at that resolution. Depth registered to the color camera.
+    The handle is measured in depth (measure_handle) where it stands out of the
+    door, else its pixel's ray meets the door plane (handle_from_depth False).
     Raises ValueError (too little depth in the door, degenerate geometry).
     """
     mask = quad_mask(keypoints.corners, depth.shape, shrink=shrink)
@@ -317,10 +402,12 @@ def locate_door(
     normal, d = fit_plane(points)
     pixels = np.array([keypoints.handle] + [keypoints.corners[n] for n in CORNERS])
     on_plane = intersect_plane(pixel_rays(pixels, K), normal, d)
+    measured = measure_handle(keypoints.handle, depth, K, normal, d)
     return Door(
         keypoints.type,
         keypoints.handle_type,
-        on_plane[0],
+        on_plane[0] if measured is None else measured,
         dict(zip(CORNERS, on_plane[1:], strict=True)),
         normal,
+        handle_from_depth=measured is not None,
     )

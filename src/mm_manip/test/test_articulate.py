@@ -12,6 +12,7 @@ from mm_manip.skills.articulate import (
     Phase,
     door_from_points,
     hinge_axis,
+    into_handle,
     opening_arc,
     with_handle_offset,
 )
@@ -104,6 +105,21 @@ def test_door_from_points():
 
 def test_handle_offset_moves_the_handle_out_of_the_door():
     assert with_handle_offset(door(), 0.03).handle == pytest.approx([0.77, -0.15, 0.7])
+
+
+def test_into_handle_moves_the_front_surface_into_the_door():
+    # Front surface 3 cm out of the door (x 0.8): 1.5 cm deeper.
+    moved, protrusion, depth = into_handle(door(handle=(0.77, -0.15, 0.7)), 0.015)
+    assert protrusion == pytest.approx(0.03)
+    assert depth == pytest.approx(0.015)
+    assert moved.handle == pytest.approx([0.785, -0.15, 0.7])
+
+
+def test_into_handle_stops_short_of_the_door():
+    # Front surface 1 cm out: only 5 mm deeper, 5 mm off the door.
+    moved, _, depth = into_handle(door(handle=(0.79, -0.15, 0.7)), 0.015)
+    assert depth == pytest.approx(0.005)
+    assert moved.handle == pytest.approx([0.795, -0.15, 0.7])
 
 
 # --- run ------------------------------------------------------------------------
