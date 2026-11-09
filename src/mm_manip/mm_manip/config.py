@@ -59,9 +59,8 @@ class ServerConfig(_Parameters):
     dry_run: bool = True  # plan + RViz only, nothing moves
     ee_frame: str = "grasp_center_link"
     settle_time: float = 0.3  # s to wait after the arm stops, before detecting
-    # TODO[lnfu] the gripper mechanism is broken; open/close/check are skipped
-    # while use_gripper is false and the arm motions still run.
-    use_gripper: bool = False
+    # false: skip opening, closing and the "holding something" check, but still move.
+    use_gripper: bool = True
 
     # ---- Read once at startup to build Robot, Scene and Locator: restart to change.
 
@@ -79,6 +78,17 @@ class ServerConfig(_Parameters):
     fjt_mode: str = "navigation"
     control_rate: float = 30.0  # Hz, velocity path commands
     path_settle_timeout: float = 5.0  # s allowed after a velocity path ends to arrive
+    # Gripper through FollowJointTrajectory, driver units past both mechanical stops.
+    gripper_joint: str = "gripper_joint"
+    gripper_state_joint: str = "gripper_finger_left_joint"  # read in /joint_states
+    gripper_open: float = 80.0
+    gripper_closed: float = -10.0
+    # Finger reading (rad) when closed on nothing; measure it on the robot.
+    gripper_closed_finger: float = 0.0  # TODO[lnfu] measure
+    gripper_holding_margin: float = 0.05  # rad farther than this = holding something
+    # Holding something: the fingers stop short of closed for this long.
+    gripper_stall_time: float = 0.3  # s
+    gripper_timeout: float = 5.0  # s
 
     detect_service: str = "/mm_perception/detect"
     service_timeout: float = 5.0
@@ -136,7 +146,6 @@ class GraspConfig(_Parameters):
     ik_accept_orientation_error_deg: float = 3.0
 
     gripper_max_opening: float = 0.10  # TODO[lnfu] measure
-    closed_threshold: float = 0.0  # TODO[lnfu] from the empty vs holding test
 
     @property
     def base_dof_list(self) -> list:

@@ -119,10 +119,8 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
 
     ctx.phase(Phase.GRASPING)
     if shared.use_gripper:
-        ctx.robot.close_gripper(ctx.should_cancel)
-        # TODO[lnfu] check the direction once the gripper range is known.
-        if ctx.robot.gripper_position() <= cfg.closed_threshold:
-            raise GraspFailed("gripper closed completely: nothing grasped")
+        if not ctx.robot.close_gripper(ctx.should_cancel):
+            raise GraspFailed("gripper closed all the way: nothing grasped")
     else:
         ctx.log.warn("use_gripper is false: not closing the gripper")
 

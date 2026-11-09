@@ -107,7 +107,7 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     ctx.observer gets phase(Phase), door(door), arc(arc) and, in dry_run,
     ghost(arm waypoints) instead of any motion.
     Raises NotImplementedError (a drawer, an unknown door, a recessed or unknown
-    handle, the gripper), ArticulateFailed, OutOfReach, PlanningError, Canceled,
+    handle), ArticulateFailed, OutOfReach, PlanningError, Canceled,
     and the robot's and the locator's errors.
     """
     if ctx.robot.urdf is None:
@@ -159,11 +159,16 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
         return outcome
 
     ctx.phase(Phase.APPROACHING)
+    if shared.use_gripper:
+        ctx.robot.open_gripper(ctx.should_cancel)
+    else:
+        ctx.log.warn("use_gripper is false: not opening the gripper")
     ctx.robot.follow_path([plan.grasp], ctx.should_cancel, gains)
 
     ctx.phase(Phase.GRASPING)
     if shared.use_gripper:
-        ctx.robot.close_gripper(ctx.should_cancel)
+        if not ctx.robot.close_gripper(ctx.should_cancel):
+            raise ArticulateFailed("gripper closed all the way: missed the handle")
     else:
         ctx.log.warn("use_gripper is false: not closing the gripper")
 

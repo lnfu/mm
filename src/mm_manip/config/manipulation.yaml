@@ -28,7 +28,15 @@ mm_manip:
     settle_time: 0.3 # s to wait after the arm stops, before detecting
     service_timeout: 5.0
 
-    use_gripper: false # TODO[lnfu] gripper mechanism being repaired
+    use_gripper: true # false: skip the gripper, still move
+    gripper_joint: gripper_joint # FJT command, driver units
+    gripper_state_joint: gripper_finger_left_joint # /joint_states, finger rad
+    gripper_open: 80.0 # past the mechanical stops: moves end when the fingers stop
+    gripper_closed: -10.0
+    gripper_closed_finger: 0.0 # TODO[lnfu] finger rad when closed on nothing: measure
+    gripper_holding_margin: 0.05 # rad: stopped farther than this = holding something
+    gripper_stall_time: 0.3 # s still short of closed = holding something
+    gripper_timeout: 5.0 # s
 
     detect_service: /mm_perception/detect
     color_topic: /cameras_gripper/right/image_raw/compressed
@@ -78,7 +86,6 @@ mm_manip:
       ik_accept_orientation_error_deg: 3.0
 
       gripper_max_opening: 0.10 # TODO[lnfu] measure
-      closed_threshold: 0.0 # TODO[lnfu] from the empty vs holding test
 
     articulate:
       start_pose:

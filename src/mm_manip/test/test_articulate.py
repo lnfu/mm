@@ -133,7 +133,8 @@ class FakeRobot:
         self.urdf = urdf
         self.joints = dict(START)
         self.paths = []
-        self.closed = False
+        self.holding = True  # what close_gripper finds
+        self.gripper = []  # "open" / "close", in order
 
     def arm_joints(self):
         return dict(self.joints)
@@ -142,8 +143,12 @@ class FakeRobot:
         self.paths.append(points)
         self.joints.update({k: points[-1][k] for k in START})
 
+    def open_gripper(self, should_cancel):
+        self.gripper.append(("open", len(self.paths)))
+
     def close_gripper(self, should_cancel):
-        raise NotImplementedError("gripper")
+        self.gripper.append(("close", len(self.paths)))
+        return self.holding
 
 
 class FakeLocator:
@@ -225,11 +230,19 @@ def test_dry_run_only_plans(urdf, handle):
     assert len(ctx.observer.ghosts) == 1
 
 
-def test_gripper_is_not_implemented(urdf, handle):
-    cfg, shared, ctx = make_case(urdf, use_gripper=True)
-    with pytest.raises(NotImplementedError):
+def test_gripper_opens_before_reaching_and_closes_on_the_handle(urdf, handle):
+    cfg, shared, ctx = make_case(urdf)
+    articulate.run(point_goal(handle, 0.30), cfg, shared, ctx)
+    # paths: start pose, reach the handle, the arc
+    assert ctx.robot.gripper == [("open", 1), ("close", 2)]
+
+
+def test_missed_handle_fails_before_pulling(urdf, handle):
+    cfg, shared, ctx = make_case(urdf)
+    ctx.robot.holding = False
+    with pytest.raises(articulate.ArticulateFailed, match="missed the handle"):
         articulate.run(point_goal(handle, 0.30), cfg, shared, ctx)
-    assert ctx.observer.phases[-1] == Phase.GRASPING
+    assert len(ctx.robot.paths) == 2  # no arc
 
 
 @pytest.mark.parametrize(

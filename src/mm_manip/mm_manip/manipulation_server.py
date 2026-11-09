@@ -31,7 +31,7 @@ from mm_interfaces.action import Articulate, Grasp
 from .config import ArticulateConfig, GraspConfig, ServerConfig
 from .errors import Canceled
 from .motion.planning import PlanningError
-from .motion.robot import MotionError, Robot
+from .motion.robot import GripperSettings, MotionError, Robot
 from .motion.trajectory import urdf_joint_positions
 from .perception.door import DoorType, GeminiDoorKeypoints, HandleType
 from .perception.door_locator import DoorLocator
@@ -83,6 +83,16 @@ class ManipulationServer(Node):
             fjt_mode=cfg.fjt_mode,
             control_rate=cfg.control_rate,
             path_settle_timeout=cfg.path_settle_timeout,
+            gripper=GripperSettings(
+                joint=cfg.gripper_joint,
+                state_joint=cfg.gripper_state_joint,
+                open=cfg.gripper_open,
+                closed=cfg.gripper_closed,
+                closed_finger=cfg.gripper_closed_finger,
+                holding_margin=cfg.gripper_holding_margin,
+                stall_time=cfg.gripper_stall_time,
+                timeout=cfg.gripper_timeout,
+            ),
             callback_group=group,
         )
         self._scene = Scene(self, base_frame=cfg.base_frame)

@@ -3,6 +3,7 @@
 import math
 import threading
 import time
+from dataclasses import dataclass
 
 from control_msgs.action import FollowJointTrajectory
 from control_msgs.msg import JointJog
@@ -53,6 +54,23 @@ class MotionError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class GripperSettings:
+    joint: str = "gripper_joint"  # FollowJointTrajectory command (servo rad)
+    state_joint: str = "gripper_finger_left_joint"  # /joint_states (finger rad)
+    # Driver units. Both are past the mechanical stops, so the gripper never gets
+    # within the driver's 0.5 of them and moves end when the fingers stop.
+    open: float = 80.0
+    closed: float = -10.0
+    # The finger reading (finger rad) when closed on nothing; closing ends farther
+    # than holding_margin from it when something is between the fingers.
+    closed_finger: float = 0.0
+    holding_margin: float = 0.05
+    still: float = 0.005  # finger rad: smaller changes count as not moving
+    stall_time: float = 0.3  # s still, short of closed, to count as holding something
+    timeout: float = 5.0  # s
+
+
 class Robot:
     def __init__(
         self,
@@ -64,6 +82,7 @@ class Robot:
         fjt_mode: str = "navigation",
         control_rate: float = 30.0,
         path_settle_timeout: float = 5.0,
+        gripper: "GripperSettings" = None,
         callback_group=None,
     ):
         """
@@ -78,6 +97,7 @@ class Robot:
             control_rate: follow_path command rate (Hz).
             path_settle_timeout: time follow_path allows after the path ends to get
                 within tolerance.
+            gripper: its joint names, open and closed commands, stall detection.
         """
         self._node = node
         self._driver_names = driver_joint_names
@@ -87,6 +107,7 @@ class Robot:
         self._fjt_mode = fjt_mode
         self._period = 1.0 / control_rate
         self._path_settle_timeout = path_settle_timeout
+        self._gripper = gripper or GripperSettings()
         self._lock = threading.Lock()
         self._joint_state = {}
         self._joint_state_time = None
@@ -438,13 +459,78 @@ class Robot:
         self._cmd_vel.publish(msg)
 
     # --- gripper ----------------------------------------------------------
-    # TODO[lnfu] 夾爪壞了...
+    # Through FollowJointTrajectory. The driver counts the gripper as there only
+    # within 0.5 of its target, which it never is against its mechanical stops or
+    # on an object: such a goal only ends at the driver's action_timeout. So both
+    # wait for the fingers to stop moving instead.
 
     def open_gripper(self, should_cancel):
-        raise NotImplementedError("gripper (mechanism being repaired)")
+        """Open the gripper; returns once it is open (at the target or the stop)."""
+        self._run_gripper(self._gripper.open, should_cancel)
 
-    def close_gripper(self, should_cancel):
-        raise NotImplementedError("gripper (mechanism being repaired)")
+    def close_gripper(self, should_cancel) -> bool:
+        """Close the gripper; True if it stopped on something, False if it closed
+        all the way (nothing in it). The command is left running, so the gripper
+        keeps squeezing."""
+        self._run_gripper(self._gripper.closed, should_cancel)
+        finger = self._finger()
+        holding = (
+            abs(finger - self._gripper.closed_finger) > self._gripper.holding_margin
+        )
+        self._node.get_logger().info(
+            f"gripper closed at finger {finger:.3f} (empty {self._gripper.closed_finger:.3f}): "
+            f"{'holding something' if holding else 'nothing in it'}"
+        )
+        return holding
 
-    def gripper_position(self) -> float:
-        raise NotImplementedError("gripper (mechanism being repaired)")
+    def _run_gripper(self, target: float, should_cancel) -> bool:
+        """Command the gripper to `target`; True once the driver reports it there,
+        False once the fingers stop short of it (still for stall_time)."""
+        g = self._gripper
+        goal = self._send_gripper(target, should_cancel)
+        result = goal.get_result_async()
+        start = time.monotonic()
+        last, still_since, moved = self._finger(), start, False
+        while True:
+            if should_cancel():
+                goal.cancel_goal_async()
+                raise Canceled()
+            if result.done():
+                outcome = result.result().result
+                if outcome.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
+                    return True
+                raise MotionError(
+                    f"gripper to {target} failed ({outcome.error_code}): "
+                    f"{outcome.error_string}"
+                )
+            now = time.monotonic()
+            position = self._finger()
+            if abs(position - last) > g.still:
+                last, still_since, moved = position, now, True
+            elif now - still_since >= g.stall_time and (moved or now - start > 1.0):
+                return False  # stopped short (or never had to move)
+            if now - start > g.timeout:
+                raise MotionError(f"gripper did not reach {target} in {g.timeout} s")
+            time.sleep(0.02)
+
+    def _send_gripper(self, target: float, should_cancel):
+        self._ensure_mode(self._fjt_mode, should_cancel)
+        if not self._fjt.wait_for_server(timeout_sec=2.0):
+            raise MotionError("FollowJointTrajectory server not available")
+        name = self._gripper.joint
+        traj = joint_trajectory([name], [{name: target}], [1.0])
+        goal = self._wait(
+            self._fjt.send_goal_async(FollowJointTrajectory.Goal(trajectory=traj)),
+            should_cancel,
+        )
+        if not goal.accepted:
+            raise MotionError("gripper goal rejected")
+        return goal
+
+    def _finger(self) -> float:
+        """The gripper's finger position (finger rad) from /joint_states."""
+        with self._lock:
+            position = self._joint_state.get(self._gripper.state_joint)
+        if position is None:
+            raise MotionError(f"{self._gripper.state_joint} not in /joint_states")
+        return position

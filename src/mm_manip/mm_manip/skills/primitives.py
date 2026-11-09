@@ -14,8 +14,8 @@ class Context:
     """What a skill runs against.
 
     robot: arm_joints(), move_arm(start, points, cancel), move_base(x, y, theta,
-        cancel, gains), open_gripper(cancel), close_gripper(cancel),
-        gripper_position(), urdf.
+        cancel, gains), open_gripper(cancel), close_gripper(cancel) -> True if
+        holding something, urdf.
     locator: locate(prompt, cancel) -> object with .label and .points (base frame).
     observer: phase(phase) plus whatever the skill reports (targets, plans, ...).
     log: info(msg), warn(msg).

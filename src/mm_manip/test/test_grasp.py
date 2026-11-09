@@ -40,6 +40,15 @@ class FakeRobot:
         self.base = np.zeros(3)  # x, y, yaw in the world
         self.arm_moves = []
         self.base_moves = []
+        self.holding = True  # what close_gripper finds
+        self.gripper = []  # "open" / "close", in order
+
+    def open_gripper(self, should_cancel):
+        self.gripper.append("open")
+
+    def close_gripper(self, should_cancel):
+        self.gripper.append("close")
+        return self.holding
 
     def arm_joints(self):
         return dict(self.joints)
@@ -205,3 +214,24 @@ def test_object_width_along_closing_axis():
         [np.linspace(0, 0.3, 200), np.linspace(-0.03, 0.03, 200), np.zeros(200)]
     )
     assert object_width(pts, R) == pytest.approx(0.06, abs=5e-3)
+
+
+def test_gripper_opens_before_the_approach_and_closes_before_the_lift(urdf, reachable):
+    cfg, shared, ctx = make_case(urdf, reachable)
+    grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
+    assert ctx.robot.gripper == ["open", "close"]
+
+
+def test_empty_gripper_fails_before_lifting(urdf, reachable):
+    cfg, shared, ctx = make_case(urdf, reachable)
+    ctx.robot.holding = False
+    with pytest.raises(grasp.GraspFailed, match="nothing grasped"):
+        grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
+    assert ctx.observer.phases[-1] == Phase.GRASPING
+    assert len(ctx.robot.arm_moves) == 2  # start pose, approach; no lift
+
+
+def test_without_gripper_nothing_is_commanded(urdf, reachable):
+    cfg, shared, ctx = make_case(urdf, reachable, use_gripper=False)
+    grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
+    assert ctx.robot.gripper == []
