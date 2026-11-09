@@ -4,13 +4,14 @@ PREFIX ssn-system: <http://www.w3.org/ns/ssn/systems/>
 PREFIX qudt: <http://qudt.org/schema/qudt/>
 PREFIX mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/>
 
-# Every camera: its device and socket, sensor specs, max frame rate, horizontal FOV, and stereo partner.
-SELECT ?device ?socket ?camera ?sensor ?width ?height ?shutter ?fps ?hfovDeg ?stereoPartner
+# Every camera: its device and socket, autofocus, sensor specs, max frame rate, horizontal FOV, and stereo partner.
+SELECT ?device ?socket ?camera ?sensor ?autofocus ?width ?height ?shutter ?fps ?hfovDeg ?stereoPartner
 WHERE {
   ?camera a mm:Camera .
 
   OPTIONAL { ?device ssn:hasSubSystem ?camera . }
   OPTIONAL { ?camera mm:boardSocket ?socket . }
+  OPTIONAL { ?camera mm:hasAutofocus ?autofocus . }
   OPTIONAL {
     ?camera mm:sensorModel ?model .
 

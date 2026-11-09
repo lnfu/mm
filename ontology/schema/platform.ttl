@@ -180,6 +180,11 @@ mm:projectionMatrix a owl:DatatypeProperty ;
 
 mm:boardSocket a owl:DatatypeProperty ; rdfs:label "board socket"@en .
 
+mm:hasAutofocus a owl:DatatypeProperty ;
+    rdfs:domain mm:Camera ; rdfs:range xsd:boolean ;
+    rdfs:label "has autofocus"@en ;
+    rdfs:comment "Whether the camera module can focus automatically. A property of the module (lens and focus motor), not the sensor model. Matches depthai CameraFeatures.hasAutofocus and V4L2 V4L2_CID_FOCUS_AUTO; no RDF vocabulary defines it."@en .
+
 mm:interfaceName a owl:DatatypeProperty ; rdfs:label "interface name"@en .
 
 mm:chip a owl:DatatypeProperty ; rdfs:label "chip"@en .

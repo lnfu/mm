@@ -108,6 +108,7 @@ mm:omnivision_ov9782 a mm:ImageSensorModel ;
 
 # Camera capabilities: ssn-system:Frequency holds the max frame rate at full resolution on RVC2
 # (Luxonis sensor docs). FOV depends on the lens, so it is per camera.
+# mm:hasAutofocus: head from depthai CameraFeatures (check_cameras.py, 2026-11-09); gripper from the Luxonis OAK-D SR page (fixed focus).
 # TODO[lnfu] add mm:hasCalibration (CameraInfo fields) from calibration_rgb_head_camera.yaml,
 # which REx_camera_calibrate fills from the OAK EEPROM.
 
@@ -132,6 +133,7 @@ mm:head_camera_center a mm:Camera ;
     rdfs:label "Head camera (center)"@en ;
     rdfs:comment "High-resolution color camera at the center of the head (CAM_A)."@en ;
     mm:boardSocket "CAM_A" ;
+    mm:hasAutofocus false ;
     mm:sensorModel mm:sony_imx378 ;
     ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
         ssn-system:hasSystemProperty [ a ssn-system:Frequency, qudt:QuantityValue ; qudt:numericValue 30.0 ; qudt:hasUnit unit:FRAME-PER-SEC ] ] ;
@@ -144,6 +146,7 @@ mm:head_camera_left a mm:Camera ;
     rdfs:label "Head camera (left)"@en ;
     rdfs:comment "Left fisheye color camera on the head (CAM_C). Forms a stereo pair with head_camera_right."@en ;
     mm:boardSocket "CAM_C" ;
+    mm:hasAutofocus false ;
     mm:sensorModel mm:onsemi_ar0234 ;
     ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
         ssn-system:hasSystemProperty [ a ssn-system:Frequency, qudt:QuantityValue ; qudt:numericValue 60.0 ; qudt:hasUnit unit:FRAME-PER-SEC ] ] ;
@@ -155,6 +158,7 @@ mm:head_camera_right a mm:Camera ;
     rdfs:label "Head camera (right)"@en ;
     rdfs:comment "Right fisheye color camera on the head (CAM_B). Forms a stereo pair with head_camera_left."@en ;
     mm:boardSocket "CAM_B" ;
+    mm:hasAutofocus false ;
     mm:sensorModel mm:onsemi_ar0234 ;
     ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
         ssn-system:hasSystemProperty [ a ssn-system:Frequency, qudt:QuantityValue ; qudt:numericValue 60.0 ; qudt:hasUnit unit:FRAME-PER-SEC ] ] ;
@@ -184,6 +188,7 @@ mm:gripper_camera_device_facet a observable:DeviceFacet ;
 mm:gripper_camera_left a mm:Camera ;
     rdfs:label "Gripper camera (left)"@en ;
     mm:boardSocket "CAM_B" ;
+    mm:hasAutofocus false ;
     mm:sensorModel mm:omnivision_ov9782 ;
     ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
         ssn-system:hasSystemProperty
@@ -198,6 +203,7 @@ mm:gripper_camera_left a mm:Camera ;
 mm:gripper_camera_right a mm:Camera ;
     rdfs:label "Gripper camera (right)"@en ;
     mm:boardSocket "CAM_C" ;
+    mm:hasAutofocus false ;
     mm:sensorModel mm:omnivision_ov9782 ;
     ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
         ssn-system:hasSystemProperty
