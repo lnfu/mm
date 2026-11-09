@@ -3,6 +3,8 @@ import sys
 
 # Add each new module that does not use ROS.
 PURE = [
+    "mm_manip.camera.frame",
+    "mm_manip.camera.images",
     "mm_manip.cancel",
     "mm_manip.config",
     "mm_manip.errors",
@@ -16,7 +18,6 @@ PURE = [
     "mm_manip.motion.velocity",
     "mm_manip.perception.door",
     "mm_manip.perception.gemini",
-    "mm_manip.perception.images",
     "mm_manip.perception.localize",
 ]
 

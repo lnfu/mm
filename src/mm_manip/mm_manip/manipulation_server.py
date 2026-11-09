@@ -12,6 +12,7 @@ from sensor_msgs.msg import JointState
 
 from mm_interfaces.action import Articulate, Grasp
 
+from .camera.camera import Camera
 from .cancel import CancelToken
 from .config import ArticulateConfig, GraspConfig, ServerConfig
 from .errors import Canceled, SkillError
@@ -60,32 +61,26 @@ class ManipulationServer(Node):
             callback_group=group,
         )
         self._scene = Scene(self, base_frame=cfg.base_frame)
-        self._locator = Locator(
+        camera = Camera(
             self,
             self._scene,
-            cfg.detect_service,
             cfg.color_topic,
             cfg.depth_topic,
             cfg.camera_info_topic,
             depth_compressed=cfg.depth_compressed,
             sync_slop=cfg.sync_slop,
-            snapshot_timeout=cfg.snapshot_timeout,
+            timeout=cfg.snapshot_timeout,
+            callback_group=group,
+        )
+        self._locator = Locator(
+            self,
+            camera,
+            cfg.detect_service,
             service_timeout=cfg.service_timeout,
             depth_band=cfg.depth_band,
             callback_group=group,
         )
-        self._door_locator = DoorLocator(
-            self,
-            self._scene,
-            cfg.color_topic,
-            cfg.depth_topic,
-            cfg.camera_info_topic,
-            depth_compressed=cfg.depth_compressed,
-            sync_slop=cfg.sync_slop,
-            snapshot_timeout=cfg.snapshot_timeout,
-            ee_frame=cfg.ee_frame,
-            callback_group=group,
-        )
+        self._door_locator = DoorLocator(self, camera, ee_frame=cfg.ee_frame)
         self._ghost_pub = self.create_publisher(JointState, "~/ghost_joint_states", 1)
 
         self._busy = False

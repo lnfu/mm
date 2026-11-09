@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 import numpy as np
 import pytest
 
-from mm_manip.perception.images import (
+from mm_manip.camera.images import (
     decode_mask_png,
     depth_to_array,
     image_to_array,
