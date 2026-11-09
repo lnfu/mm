@@ -40,7 +40,7 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
 
     ctx.phase(Phase.DETECTING)
     center = goal.point if goal.point is not None else _detect(goal, cfg, ctx, rotation)
-    ctx.observer.target(center)
+    _show_target(ctx, center)
 
     def replan(current, center):
         plan = plan_grasp(
@@ -59,7 +59,8 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
                 "wrist_yaw_joint": cfg.grasp_wrist["wrist_yaw_joint"],
             },
         )
-        ctx.observer.plan(center, plan)
+        ctx.report.show(center, plan.poses["approach"] + [plan.poses["lift"]])
+        ctx.log.info(f"plan ok: base {plan.base or 'locked'}, center {center.round(3)}")
         return plan
 
     def relocate(plan, center):
@@ -69,13 +70,13 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
         else:  # no camera: use the planned base motion
             moved = base_solver.base_motion({**plan.pregrasp, **plan.base})
             center = moved.actInv(pin.SE3(np.eye(3), center)).translation
-        ctx.observer.target(center)
+        _show_target(ctx, center)
         ctx.phase(Phase.APPROACHING)
         return center
 
     plan = replan(current, center)
     if shared.dry_run:
-        ctx.observer.ghost([plan.pregrasp] + plan.approach + [plan.lift])
+        ctx.report.ghost([plan.pregrasp] + plan.approach + [plan.lift])
         return center
 
     ctx.phase(Phase.APPROACHING)
@@ -134,7 +135,7 @@ def _solvers(cfg, shared, urdf):
 
 
 def _detect(goal, cfg, ctx, rotation):
-    seen = ctx.locator.locate(goal.prompt, ctx.cancel)
+    seen = ctx.locate(goal.prompt, ctx.cancel)
     width = object_width(seen.points, rotation)
     ctx.log.info(f"{seen.label}: {len(seen.points)} points, width {width * 100:.1f} cm")
     if width > cfg.gripper_max_opening:
@@ -142,6 +143,11 @@ def _detect(goal, cfg, ctx, rotation):
             f"object is {width * 100:.1f} cm wide, wider than the gripper opening"
         )
     return center_and_width(seen.points)[0]
+
+
+def _show_target(ctx, center):
+    ctx.report.show(center)  # before planning: visible even if IK fails
+    ctx.log.info(f"target in the base frame: {center.round(3)}")
 
 
 def object_width(points: np.ndarray, rotation: np.ndarray) -> float:

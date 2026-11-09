@@ -24,6 +24,10 @@ class Scene:
         self._marker_pub = node.create_publisher(MarkerArray, "~/target_markers", 1)
         self._ghost_pub = node.create_publisher(JointState, "~/ghost_joint_states", 1)
 
+    @property
+    def base_frame(self) -> str:
+        return self._base_frame
+
     def lookup(self, header):
         if header.frame_id in ("", self._base_frame):
             return np.eye(3), np.zeros(3)

@@ -15,6 +15,8 @@ PURE = [
     "mm_manip.motion.planning",
     "mm_manip.motion.trajectory",
     "mm_manip.motion.velocity",
+    "mm_manip.skills.action",
+    "mm_manip.skills.base",
     "mm_manip.skills.primitives",
     "mm_manip.skills.articulate.debug",
     "mm_manip.skills.articulate.door",

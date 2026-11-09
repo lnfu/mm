@@ -19,7 +19,7 @@ from mm_manip.skills.articulate.door import (
     with_handle_offset,
 )
 from mm_manip.skills.articulate.skill import ArticulateGoal, Phase
-from mm_manip.skills.primitives import Context
+from mm_manip.skills.base import Context
 
 stretch4_urdf = pytest.importorskip("stretch4_urdf")
 
@@ -169,21 +169,21 @@ class FakeLocator:
         return self.found
 
 
-class FakeObserver:
+class FakeReport:
     def __init__(self):
-        self.phases, self.doors, self.arcs, self.ghosts = [], [], [], []
+        self.phases, self.shown, self.ghosts, self.kept = [], [], [], {}
 
     def phase(self, phase):
         self.phases.append(phase)
 
-    def door(self, door):
-        self.doors.append(door)
-
-    def arc(self, arc):
-        self.arcs.append(arc)
+    def show(self, center, poses=()):
+        self.shown.append((center, list(poses)))
 
     def ghost(self, waypoints):
         self.ghosts.append(waypoints)
+
+    def keep(self, **values):
+        self.kept.update(values)
 
 
 class FakeLog:
@@ -196,8 +196,9 @@ class FakeLog:
 
 def make_case(urdf, found=None, **cfg):
     robot = FakeRobot(urdf)
-    observer = FakeObserver()
-    ctx = Context(robot, FakeLocator(found), observer, FakeLog(), CancelToken())
+    ctx = Context(
+        robot, FakeLocator(found).locate, FakeReport(), FakeLog(), CancelToken()
+    )
     defaults = dict(dry_run=False, start_pose=START, settle_time=0.0)
     values = {**defaults, **cfg}
     shared_names = {f.name for f in fields(ServerConfig)}
@@ -214,7 +215,7 @@ def point_goal(handle, hinge_dy):
 def test_opens_a_door_given_by_points(urdf, handle, hinge_dy):
     cfg, shared, ctx = make_case(urdf)
     outcome = articulate.run(point_goal(handle, hinge_dy), cfg, shared, ctx)
-    assert ctx.observer.phases == list(Phase)
+    assert ctx.report.phases == list(Phase)
     start, grasp, arc = ctx.robot.paths
     assert len(start) == 1 and len(grasp) == 1
     assert "base_x" not in grasp[0]
@@ -237,7 +238,7 @@ def test_dry_run_only_plans(urdf, handle):
     cfg, shared, ctx = make_case(urdf, dry_run=True)
     articulate.run(point_goal(handle, 0.30), cfg, shared, ctx)
     assert ctx.robot.paths == []
-    assert len(ctx.observer.ghosts) == 1
+    assert len(ctx.report.ghosts) == 1
 
 
 def test_gripper_opens_before_reaching_and_closes_on_the_handle(urdf, handle):
@@ -267,7 +268,7 @@ def test_unsupported_doors_are_not_implemented(urdf, found):
     cfg, shared, ctx = make_case(urdf, found=found)
     with pytest.raises(NotImplementedError):
         articulate.run(ArticulateGoal(prompt="door"), cfg, shared, ctx)
-    (seen,) = ctx.observer.doors
+    seen = ctx.report.kept["door"]
     assert (seen.type, seen.handle_type) == (found.type, found.handle_type)
     assert len(ctx.robot.paths) == 1
 

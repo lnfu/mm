@@ -8,9 +8,9 @@ from mm_ik.solver import IKSolver
 from mm_manip.cancel import CancelToken
 from mm_manip.config import GraspConfig, ServerConfig
 from mm_manip.errors import Canceled, GraspFailed, OutOfReach
+from mm_manip.skills.base import Context
 from mm_manip.skills.grasp import skill as grasp
 from mm_manip.skills.grasp.skill import GraspGoal, Phase, object_width
-from mm_manip.skills.primitives import Context
 
 stretch4_urdf = pytest.importorskip("stretch4_urdf")
 
@@ -86,21 +86,21 @@ class FakeLocator:
         return SimpleNamespace(label=prompt, points=center + offsets)
 
 
-class FakeObserver:
+class FakeReport:
     def __init__(self):
-        self.phases, self.targets, self.plans, self.ghosts = [], [], [], []
+        self.phases, self.shown, self.ghosts, self.kept = [], [], [], {}
 
     def phase(self, phase):
         self.phases.append(phase)
 
-    def target(self, center):
-        self.targets.append(center)
-
-    def plan(self, center, plan):
-        self.plans.append(plan)
+    def show(self, center, poses=()):
+        self.shown.append((center, list(poses)))
 
     def ghost(self, waypoints):
         self.ghosts.append(waypoints)
+
+    def keep(self, **values):
+        self.kept.update(values)
 
 
 class FakeLog:
@@ -111,15 +111,19 @@ class FakeLog:
         pass
 
 
+def looks(ctx) -> int:
+    return ctx.locate.__self__.looks  # ctx.locate is FakeLocator.locate
+
+
 def make_case(urdf, world, errors=(), cancel_after=None, **cfg):
     robot = FakeRobot(urdf)
     locator = FakeLocator(robot, world, errors)
-    observer = FakeObserver()
+    report = FakeReport()
 
     cancel = CancelToken(
-        lambda: cancel_after is not None and len(observer.phases) >= cancel_after
+        lambda: cancel_after is not None and len(report.phases) >= cancel_after
     )
-    ctx = Context(robot, locator, observer, FakeLog(), cancel)
+    ctx = Context(robot, locator.locate, report, FakeLog(), cancel)
     defaults = dict(dry_run=False, start_pose=START, base_dofs="x,y", settle_time=0.0)
     values = {**defaults, **cfg}
     shared_names = {f.name for f in fields(ServerConfig)}
@@ -132,10 +136,10 @@ def test_reachable_object_needs_no_base(urdf, reachable):
     cfg, shared, ctx = make_case(urdf, reachable)
     center = grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert ctx.robot.base_moves == []
-    assert ctx.locator.looks == 1
+    assert looks(ctx) == 1
     assert len(ctx.robot.arm_moves) == 3
     assert np.allclose(center, reachable)
-    assert ctx.observer.phases == [
+    assert ctx.report.phases == [
         Phase.MOVING_TO_START,
         Phase.DETECTING,
         Phase.APPROACHING,
@@ -148,7 +152,7 @@ def test_far_object_moves_the_base_once_and_looks_again(urdf, reachable):
     cfg, shared, ctx = make_case(urdf, reachable + [0.0, -0.30, 0.0])
     grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert len(ctx.robot.base_moves) == 1
-    assert ctx.locator.looks == 2
+    assert looks(ctx) == 2
 
 
 def test_wrong_first_look_gets_a_second_base_move(urdf, reachable):
@@ -158,9 +162,9 @@ def test_wrong_first_look_gets_a_second_base_move(urdf, reachable):
     )
     grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert len(ctx.robot.base_moves) == 2
-    assert ctx.locator.looks == 3
+    assert looks(ctx) == 3
     end = ctx.robot.to_base(reachable + [0.0, -0.30, 0.0])
-    assert np.allclose(ctx.observer.targets[-1], end)
+    assert np.allclose(ctx.report.shown[-1][0], end)
 
 
 def test_out_of_reach_after_max_base_moves(urdf, reachable):
@@ -179,7 +183,7 @@ def test_point_goal_uses_no_camera(urdf, reachable):
     cfg, shared, ctx = make_case(urdf, reachable)
     far = reachable + [0.0, -0.30, 0.0]
     center = grasp.run(GraspGoal(point=far), cfg, shared, ctx)
-    assert ctx.locator.looks == 0
+    assert looks(ctx) == 0
     assert len(ctx.robot.base_moves) == 1
     assert np.allclose(center, ctx.robot.to_base(far), atol=1e-3)
 
@@ -188,15 +192,15 @@ def test_dry_run_moves_nothing(urdf, reachable):
     cfg, shared, ctx = make_case(urdf, reachable + [0.0, -0.30, 0.0], dry_run=True)
     grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert ctx.robot.arm_moves == [] and ctx.robot.base_moves == []
-    assert len(ctx.observer.ghosts) == 1
+    assert len(ctx.report.ghosts) == 1
 
 
 def test_cancel_stops_at_the_next_phase(urdf, reachable):
     cfg, shared, ctx = make_case(urdf, reachable, cancel_after=1)
     with pytest.raises(Canceled):
         grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
-    assert ctx.observer.phases == [Phase.MOVING_TO_START]
-    assert ctx.locator.looks == 0
+    assert ctx.report.phases == [Phase.MOVING_TO_START]
+    assert looks(ctx) == 0
 
 
 def test_too_wide_object_is_rejected(urdf, reachable):
@@ -225,7 +229,7 @@ def test_empty_gripper_fails_before_lifting(urdf, reachable):
     ctx.robot.holding = False
     with pytest.raises(GraspFailed, match="nothing grasped"):
         grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
-    assert ctx.observer.phases[-1] == Phase.GRASPING
+    assert ctx.report.phases[-1] == Phase.GRASPING
     assert len(ctx.robot.arm_moves) == 2
 
 

@@ -1,21 +1,4 @@
-from dataclasses import dataclass
-from typing import Any
-
-from ..cancel import CancelToken
 from ..errors import OutOfReach
-
-
-@dataclass
-class Context:
-    robot: Any
-    locator: Any
-    observer: Any
-    log: Any
-    cancel: CancelToken
-
-    def phase(self, phase):
-        self.cancel.check()
-        self.observer.phase(phase)
 
 
 def needs_base(plan) -> bool:

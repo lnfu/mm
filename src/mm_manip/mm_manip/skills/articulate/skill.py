@@ -80,7 +80,7 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     if goal.handle is not None:
         door = door_from_points(goal.handle, goal.hinge)
     else:
-        door = ctx.locator.locate(goal.prompt, ctx.cancel)
+        door = ctx.locate(goal.prompt, ctx.cancel)
         if door.handle_from_depth:
             door, protrusion, moved = into_handle(door, cfg.handle_grasp_depth)
             ctx.log.info(
@@ -95,7 +95,12 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
             door = with_handle_offset(door, cfg.handle_offset)
         # HACK: the grasps land left of and above the handle.
         door = replace(door, handle=door.handle + [0.0, -0.015, -0.05])
-    ctx.observer.door(door)
+    ctx.report.keep(door=door)
+    ctx.report.show(door.handle)
+    ctx.log.info(
+        f"door {door.type.name}, handle {door.handle_type.name} "
+        f"at {door.handle.round(3)} in the base frame"
+    )
     if door.type not in (DoorType.REVOLUTE_LEFT, DoorType.REVOLUTE_RIGHT):
         raise NotImplementedError(f"opening a {door.type.name.lower()} door")
     if door.handle_type not in HANDLE_ROLL:
@@ -103,7 +108,8 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
 
     asked = goal.open_angle or DEFAULT_OPEN_ANGLE
     arc = opening_arc(door, asked, cfg.n_waypoints, HANDLE_ROLL[door.handle_type])
-    ctx.observer.arc(arc)
+    ctx.report.show(arc.axis, arc.poses)
+    ctx.log.info(f"hinge axis at {arc.axis.round(3)}, {len(arc.poses)} arc poses")
     plan = plan_arc(arc, current, cfg, shared, ctx.robot.urdf)
     end = plan.path[-1]
     ctx.log.info(
@@ -117,7 +123,7 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
         ctx.log.info(f"base moves to reach the handle: {approach}")
     outcome = Outcome(door, plan.opened, asked)
     if shared.dry_run:
-        ctx.observer.ghost([arm_only(plan.grasp)] + [arm_only(p) for p in plan.path])
+        ctx.report.ghost([arm_only(plan.grasp)] + [arm_only(p) for p in plan.path])
         return outcome
 
     ctx.phase(Phase.APPROACHING)
