@@ -11,4 +11,5 @@ mm:MeasuringDevice rdfs:subClassOf saref:Sensor .
 mm:Camera rdfs:subClassOf saref:Sensor .
 mm:Microphone rdfs:subClassOf saref:Sensor .
 mm:Computer rdfs:subClassOf saref:Device .
+mm:CameraDevice rdfs:subClassOf saref:Device .
 mm:SpeakerDevice rdfs:subClassOf saref:Device .

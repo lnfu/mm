@@ -1,6 +1,8 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ssn: <http://www.w3.org/ns/ssn/> .
+@prefix ssn-system: <http://www.w3.org/ns/ssn/systems/> .
 @prefix sumo: <http://purl.org/ieee1872-owl/sumo-cora#> .
 @prefix rparts: <http://purl.org/ieee1872-owl/rparts#> .
 @prefix core: <https://ontology.unifiedcyberontology.org/uco/core/> .
@@ -82,73 +84,128 @@ mm:hesai_jt128_firmware_1 a observable:Software ;
 mm:hesai_jt128_firmware_1_facet a observable:SoftwareFacet ;
     observable:version "15.AF.B0.00.02.Y0 / 1.b.0028 / 2.b.0692" .
 
-# Head camera board
-mm:head_camera_board a sumo:Device, observable:Device ;
+# Image sensor models. Specs from Luxonis sensor docs (docs.luxonis.com/hardware/sensors, 2026-11-09).
+mm:sony_imx378 a mm:ImageSensorModel ;
+    rdfs:label "Sony IMX378"@en ;
+    mm:sensorWidth 4056 ;
+    mm:sensorHeight 3040 ;
+    mm:sensorShutterMode "Rolling" ;
+    mm:sensorPixelSize [ a qudt:QuantityValue ; qudt:numericValue 1.55 ; qudt:hasUnit unit:MicroM ] .
+
+mm:onsemi_ar0234 a mm:ImageSensorModel ;
+    rdfs:label "onsemi AR0234"@en ;
+    mm:sensorWidth 1920 ;
+    mm:sensorHeight 1200 ;
+    mm:sensorShutterMode "Global" ;
+    mm:sensorPixelSize [ a qudt:QuantityValue ; qudt:numericValue 3.0 ; qudt:hasUnit unit:MicroM ] .
+
+mm:omnivision_ov9782 a mm:ImageSensorModel ;
+    rdfs:label "OmniVision OV9782"@en ;
+    mm:sensorWidth 1280 ;
+    mm:sensorHeight 800 ;
+    mm:sensorShutterMode "Global" ;
+    mm:sensorPixelSize [ a qudt:QuantityValue ; qudt:numericValue 3.0 ; qudt:hasUnit unit:MicroM ] .
+
+# Camera capabilities: ssn-system:Frequency holds the max frame rate at full resolution on RVC2
+# (Luxonis sensor docs). FOV depends on the lens, so it is per camera.
+# TODO[lnfu] add mm:hasCalibration (CameraInfo fields) from calibration_rgb_head_camera.yaml,
+# which REx_camera_calibrate fills from the OAK EEPROM.
+
+# Head camera board. The OAK-FFC-3P is a bare board; the three camera modules are plugged in.
+mm:head_camera_board a mm:CameraDevice, observable:Device ;
     rdfs:label "Head camera board"@en ;
-    rdfs:comment "Luxonis OAK-FFC-3P camera board on the head, MxId 1944301031EB002F00. Holds three cameras (CAM_A, CAM_B, CAM_C)."@en ;
+    rdfs:comment "Luxonis OAK-FFC-3P camera board on the head. Holds three cameras (CAM_A, CAM_B, CAM_C)."@en ;
     mm:boardRevision "DM1090, rev R3M0E3" ;
-    mm:mxId "1944301031EB002F00" ;
     mm:hardwareConfig "F0-FV00-BC000" ;
     mm:usbSpeed [ a qudt:QuantityValue ; qudt:numericValue 5.0 ; qudt:hasUnit unit:GigaBIT-PER-SEC ] ; # SUPER (USB 3)
     mm:usbPath "3.3" ;
+    ssn:hasSubSystem mm:head_camera_center, mm:head_camera_left, mm:head_camera_right ;
     core:hasFacet mm:head_camera_board_device_facet ;
     sumo:part mm:stretch4_1 .
 
 mm:head_camera_board_device_facet a observable:DeviceFacet ;
-    observable:model "Luxonis OAK-FFC-3P" .
+    observable:model "Luxonis OAK-FFC-3P" ;
+    observable:serialNumber "1944301031EB002F00" . # Luxonis MxId (depthai device ID)
 
-# CAM_A
+# CAM_A — TODO[lnfu] add FOV from the lens datasheet
 mm:head_camera_center a mm:Camera ;
     rdfs:label "Head camera (center)"@en ;
-    rdfs:comment "High-resolution color camera at the center of the head (CAM_A, Sony IMX378, rolling shutter)."@en ;
+    rdfs:comment "High-resolution color camera at the center of the head (CAM_A)."@en ;
     mm:boardSocket "CAM_A" ;
-    mm:sensorChip "Sony IMX378" ;
-    mm:resolution "4056x3040" ;
-    mm:shutterType "rolling" ;
-    sumo:part mm:head_camera_board ;
+    mm:sensorModel mm:sony_imx378 ;
+    ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
+        ssn-system:hasSystemProperty [ a ssn-system:Frequency, qudt:QuantityValue ; qudt:numericValue 30.0 ; qudt:hasUnit unit:FRAME-PER-SEC ] ] ;
     rparts:robotSensingPart mm:stretch4_1 .
 
-# CAM_B  — TODO[lnfu] confirm CAM_B is left
+# Head sockets are crossed: left = CAM_C, right = CAM_B
+# (hello-robot/stretch4_body luxonis_camera_adapter.py get_depthai_camera_socket, and stretch_monitor_devices.py).
+# CAM_C — TODO[lnfu] add FOV from the fisheye lens datasheet
 mm:head_camera_left a mm:Camera ;
     rdfs:label "Head camera (left)"@en ;
-    rdfs:comment "Left fisheye camera on the head (CAM_B, onsemi AR0234, global shutter). Forms a stereo pair with head_camera_right."@en ;
-    mm:boardSocket "CAM_B" ;
-    mm:sensorChip "onsemi AR0234" ;
-    mm:resolution "1920x1200" ;
-    mm:shutterType "global" ;
-    sumo:part mm:head_camera_board ;
+    rdfs:comment "Left fisheye color camera on the head (CAM_C). Forms a stereo pair with head_camera_right."@en ;
+    mm:boardSocket "CAM_C" ;
+    mm:sensorModel mm:onsemi_ar0234 ;
+    ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
+        ssn-system:hasSystemProperty [ a ssn-system:Frequency, qudt:QuantityValue ; qudt:numericValue 60.0 ; qudt:hasUnit unit:FRAME-PER-SEC ] ] ;
     rparts:robotSensingPart mm:stretch4_1 ;
     mm:stereoPairWith mm:head_camera_right .
 
-# CAM_C  — TODO[lnfu] confirm CAM_C is right
+# CAM_B — TODO[lnfu] add FOV from the fisheye lens datasheet
 mm:head_camera_right a mm:Camera ;
     rdfs:label "Head camera (right)"@en ;
-    rdfs:comment "Right fisheye camera on the head (CAM_C, onsemi AR0234, global shutter). Forms a stereo pair with head_camera_left."@en ;
-    mm:boardSocket "CAM_C" ;
-    mm:sensorChip "onsemi AR0234" ;
-    mm:resolution "1920x1200" ;
-    mm:shutterType "global" ;
-    sumo:part mm:head_camera_board ;
+    rdfs:comment "Right fisheye color camera on the head (CAM_B). Forms a stereo pair with head_camera_left."@en ;
+    mm:boardSocket "CAM_B" ;
+    mm:sensorModel mm:onsemi_ar0234 ;
+    ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
+        ssn-system:hasSystemProperty [ a ssn-system:Frequency, qudt:QuantityValue ; qudt:numericValue 60.0 ; qudt:hasUnit unit:FRAME-PER-SEC ] ] ;
     rparts:robotSensingPart mm:stretch4_1 .
 
 # Gripper camera
-mm:gripper_camera a mm:Camera, observable:Device ;
+mm:gripper_camera a mm:CameraDevice, observable:Device ;
     rdfs:label "Gripper camera"@en ;
-    rdfs:comment "Luxonis OAK-D-SR short-range stereo depth camera on the gripper, MxId 19443010A1FE085B00."@en ;
-    rdfs:comment "Sensors: OmniVision OV9782 x 2, 1280x800, color, global shutter (stereo pair)."@en ;
+    rdfs:comment "Luxonis OAK-D-SR short-range stereo depth camera on the gripper. Two color global-shutter cameras, no center camera."@en ;
     mm:boardRevision "DM2080, rev R4M2E4" ;
-    mm:mxId "19443010A1FE085B00" ;
     mm:hardwareConfig "F1-FV00-BC000" ;
     mm:usbSpeed [ a qudt:QuantityValue ; qudt:numericValue 480.0 ; qudt:hasUnit unit:MegaBIT-PER-SEC ] ; # HIGH (USB 2)
     mm:usbPath "3.7.3.1" ;
-    mm:sensorChip "OmniVision OV9782" ;
-    mm:resolution "1280x800" ;
-    mm:shutterType "global" ;
+    ssn:hasSubSystem mm:gripper_camera_left, mm:gripper_camera_right ;
     core:hasFacet mm:gripper_camera_device_facet ;
-    rparts:robotSensingPart mm:stretch4_1 .
+    sumo:part mm:stretch4_1 .
 
 mm:gripper_camera_device_facet a observable:DeviceFacet ;
-    observable:model "Luxonis OAK-D-SR" .
+    observable:model "Luxonis OAK-D-SR" ;
+    observable:serialNumber "19443010A1FE085B00" . # Luxonis MxId (depthai device ID)
+
+# Gripper sockets: left = CAM_B, right = CAM_C, per hello-robot/stretch4_body luxonis_camera_adapter.py
+# and stretch4_compliant_gripper gripper_camera.py (CAM_B -> stereo.left).
+# TODO[lnfu] stretch4_body stretch_monitor_devices.py says the opposite; check with a hand in front of one lens.
+# FOV from the Luxonis OAK-D SR product page.
+# CAM_B
+mm:gripper_camera_left a mm:Camera ;
+    rdfs:label "Gripper camera (left)"@en ;
+    mm:boardSocket "CAM_B" ;
+    mm:sensorModel mm:omnivision_ov9782 ;
+    ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
+        ssn-system:hasSystemProperty
+            [ a ssn-system:Frequency, qudt:QuantityValue ; qudt:numericValue 129.0 ; qudt:hasUnit unit:FRAME-PER-SEC ] ,
+            [ a mm:HorizontalFieldOfView, qudt:QuantityValue ; qudt:numericValue 80.0 ; qudt:hasUnit unit:DEG ] ,
+            [ a mm:VerticalFieldOfView, qudt:QuantityValue ; qudt:numericValue 55.0 ; qudt:hasUnit unit:DEG ] ,
+            [ a mm:DiagonalFieldOfView, qudt:QuantityValue ; qudt:numericValue 89.5 ; qudt:hasUnit unit:DEG ] ] ;
+    rparts:robotSensingPart mm:stretch4_1 ;
+    mm:stereoPairWith mm:gripper_camera_right .
+
+# CAM_C
+mm:gripper_camera_right a mm:Camera ;
+    rdfs:label "Gripper camera (right)"@en ;
+    mm:boardSocket "CAM_C" ;
+    mm:sensorModel mm:omnivision_ov9782 ;
+    ssn-system:hasSystemCapability [ a ssn-system:SystemCapability ;
+        ssn-system:hasSystemProperty
+            [ a ssn-system:Frequency, qudt:QuantityValue ; qudt:numericValue 129.0 ; qudt:hasUnit unit:FRAME-PER-SEC ] ,
+            [ a mm:HorizontalFieldOfView, qudt:QuantityValue ; qudt:numericValue 80.0 ; qudt:hasUnit unit:DEG ] ,
+            [ a mm:VerticalFieldOfView, qudt:QuantityValue ; qudt:numericValue 55.0 ; qudt:hasUnit unit:DEG ] ,
+            [ a mm:DiagonalFieldOfView, qudt:QuantityValue ; qudt:numericValue 89.5 ; qudt:hasUnit unit:DEG ] ] ;
+    rparts:robotSensingPart mm:stretch4_1 .
 
 # Microphone
 mm:head_microphone a mm:Microphone ;

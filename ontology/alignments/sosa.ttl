@@ -2,15 +2,24 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix rparts: <http://purl.org/ieee1872-owl/rparts#> .
 @prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix ssn: <http://www.w3.org/ns/ssn/> .
+@prefix ssn-system: <http://www.w3.org/ns/ssn/systems/> .
+@prefix sumo: <http://purl.org/ieee1872-owl/sumo-cora#> .
 @prefix mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/> .
 
 <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-alignment-sosa> a owl:Ontology ;
-    rdfs:comment "Alignment of mm platform classes and IEEE 1872 robot parts to W3C SOSA."@en ;
-    owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform>, sosa: .
+    rdfs:comment "Alignment of mm platform classes and IEEE 1872 robot parts to W3C SOSA/SSN (SSN System Capabilities module)."@en ;
+    owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform>, ssn-system: .
 
 mm:MeasuringDevice rdfs:subClassOf sosa:Sensor .
 mm:Camera rdfs:subClassOf sosa:Sensor .
 mm:Microphone rdfs:subClassOf sosa:Sensor .
+mm:CameraDevice rdfs:subClassOf ssn:System .
+mm:FieldOfView rdfs:subClassOf ssn-system:SystemProperty .
+
+# A subsystem is a physical part of its system (e.g. camera -> camera device).
+# ELK ignores inverse properties; HermiT uses this.
+[ owl:inverseOf ssn:hasSubSystem ] rdfs:subPropertyOf sumo:part .
 
 # A robot's sensing parts are hosted by it.
 rparts:robotSensingPart rdfs:subPropertyOf sosa:isHostedBy .

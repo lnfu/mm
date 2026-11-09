@@ -1,4 +1,5 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix sumo: <http://purl.org/ieee1872-owl/sumo-cora#> .
 @prefix observable: <https://ontology.unifiedcyberontology.org/uco/observable/> .
@@ -31,7 +32,32 @@ mm:Computer a owl:Class ;
 
 mm:Camera a owl:Class ;
     rdfs:subClassOf sumo:Device ;
-    rdfs:label "Camera"@en .
+    rdfs:label "Camera"@en ;
+    rdfs:comment "One image sensor with its lens: a single physical camera module. A stereo unit has two."@en .
+
+# Cameras
+mm:CameraDevice a owl:Class ;
+    rdfs:subClassOf sumo:Device ;
+    rdfs:label "Camera device"@en ;
+    rdfs:comment "A unit that hosts one or more cameras and connects to a host computer, e.g. a Luxonis OAK device. Its cameras are linked with ssn:hasSubSystem."@en .
+
+mm:ImageSensorModel a owl:Class ;
+    rdfs:label "Image sensor model"@en ;
+    rdfs:comment "An image sensor chip model (e.g. Sony IMX378). Holds the datasheet specs shared by every camera built on it. Property names follow GenICam SFNC."@en .
+
+# Lens-dependent, so it belongs to a camera, not to its sensor model. Value: qudt:numericValue + qudt:hasUnit unit:DEG.
+mm:FieldOfView a owl:Class ;
+    rdfs:label "Field of view"@en .
+
+mm:HorizontalFieldOfView a owl:Class ; rdfs:subClassOf mm:FieldOfView ; rdfs:label "Horizontal field of view"@en .
+
+mm:VerticalFieldOfView a owl:Class ; rdfs:subClassOf mm:FieldOfView ; rdfs:label "Vertical field of view"@en .
+
+mm:DiagonalFieldOfView a owl:Class ; rdfs:subClassOf mm:FieldOfView ; rdfs:label "Diagonal field of view"@en .
+
+mm:CameraCalibration a owl:Class ;
+    rdfs:label "Camera calibration"@en ;
+    rdfs:comment "Intrinsic calibration of one camera at one image size. Fields follow ROS sensor_msgs/CameraInfo. Matrices are space-separated numbers in row-major order."@en .
 
 mm:CommunicationDevice a owl:Class ;
     rdfs:subClassOf mm:EngineeringComponent ;
@@ -70,6 +96,22 @@ mm:stereoPairWith a owl:ObjectProperty, owl:SymmetricProperty ;
     rdfs:range mm:Camera ;
     rdfs:label "stereo pair with"@en .
 
+mm:sensorModel a owl:ObjectProperty ;
+    rdfs:domain mm:Camera ;
+    rdfs:range mm:ImageSensorModel ;
+    rdfs:label "sensor model"@en .
+
+mm:hasCalibration a owl:ObjectProperty ;
+    rdfs:domain mm:Camera ;
+    rdfs:range mm:CameraCalibration ;
+    rdfs:label "has calibration"@en .
+
+mm:sensorPixelSize a owl:ObjectProperty ;
+    rdfs:domain mm:ImageSensorModel ;
+    rdfs:range qudt:QuantityValue ;
+    rdfs:label "sensor pixel size"@en ;
+    rdfs:comment "Pixel pitch of square pixels. GenICam SFNC: SensorPixelWidth / SensorPixelHeight."@en .
+
 mm:hasFirmware a owl:ObjectProperty ;
     rdfs:range observable:Software ;
     rdfs:label "has firmware"@en ;
@@ -84,19 +126,57 @@ mm:usbSpeed a owl:ObjectProperty ; rdfs:range qudt:QuantityValue ; rdfs:label "U
 # Datatype properties
 mm:checksum a owl:DatatypeProperty ; rdfs:label "checksum"@en .
 
-mm:mxId a owl:DatatypeProperty ; rdfs:label "Luxonis MxId"@en .
-
 mm:boardRevision a owl:DatatypeProperty ; rdfs:label "board revision"@en .
 
 mm:hardwareConfig a owl:DatatypeProperty ; rdfs:label "hardware config"@en .
 
 mm:usbPath a owl:DatatypeProperty ; rdfs:label "USB path"@en .
 
-mm:sensorChip a owl:DatatypeProperty ; rdfs:label "sensor chip"@en .
+# Image sensor specs, named after GenICam SFNC features.
+mm:sensorWidth a owl:DatatypeProperty ;
+    rdfs:domain mm:ImageSensorModel ; rdfs:range xsd:integer ;
+    rdfs:label "sensor width"@en ;
+    rdfs:comment "Effective width of the sensor in pixels. GenICam SFNC: SensorWidth."@en .
 
-mm:resolution a owl:DatatypeProperty ; rdfs:label "resolution"@en .
+mm:sensorHeight a owl:DatatypeProperty ;
+    rdfs:domain mm:ImageSensorModel ; rdfs:range xsd:integer ;
+    rdfs:label "sensor height"@en ;
+    rdfs:comment "Effective height of the sensor in pixels. GenICam SFNC: SensorHeight."@en .
 
-mm:shutterType a owl:DatatypeProperty ; rdfs:label "shutter type"@en .
+mm:sensorShutterMode a owl:DatatypeProperty ;
+    rdfs:domain mm:ImageSensorModel ; rdfs:range xsd:string ;
+    rdfs:label "sensor shutter mode"@en ;
+    rdfs:comment "GenICam SFNC: SensorShutterMode. Values: \"Global\", \"Rolling\", \"GlobalReset\"."@en .
+
+# Camera calibration, named after ROS sensor_msgs/CameraInfo fields.
+mm:imageWidth a owl:DatatypeProperty ;
+    rdfs:domain mm:CameraCalibration ; rdfs:range xsd:integer ;
+    rdfs:label "image width"@en ; rdfs:comment "CameraInfo.width, in pixels."@en .
+
+mm:imageHeight a owl:DatatypeProperty ;
+    rdfs:domain mm:CameraCalibration ; rdfs:range xsd:integer ;
+    rdfs:label "image height"@en ; rdfs:comment "CameraInfo.height, in pixels."@en .
+
+mm:distortionModel a owl:DatatypeProperty ;
+    rdfs:domain mm:CameraCalibration ; rdfs:range xsd:string ;
+    rdfs:label "distortion model"@en ;
+    rdfs:comment "CameraInfo.distortion_model, e.g. \"plumb_bob\", \"rational_polynomial\", \"equidistant\"."@en .
+
+mm:distortionCoefficients a owl:DatatypeProperty ;
+    rdfs:domain mm:CameraCalibration ; rdfs:range xsd:string ;
+    rdfs:label "distortion coefficients"@en ; rdfs:comment "CameraInfo.d. Count depends on the distortion model."@en .
+
+mm:intrinsicMatrix a owl:DatatypeProperty ;
+    rdfs:domain mm:CameraCalibration ; rdfs:range xsd:string ;
+    rdfs:label "intrinsic matrix"@en ; rdfs:comment "CameraInfo.k: 3x3, 9 numbers."@en .
+
+mm:rectificationMatrix a owl:DatatypeProperty ;
+    rdfs:domain mm:CameraCalibration ; rdfs:range xsd:string ;
+    rdfs:label "rectification matrix"@en ; rdfs:comment "CameraInfo.r: 3x3, 9 numbers."@en .
+
+mm:projectionMatrix a owl:DatatypeProperty ;
+    rdfs:domain mm:CameraCalibration ; rdfs:range xsd:string ;
+    rdfs:label "projection matrix"@en ; rdfs:comment "CameraInfo.p: 3x4, 12 numbers."@en .
 
 mm:boardSocket a owl:DatatypeProperty ; rdfs:label "board socket"@en .
 

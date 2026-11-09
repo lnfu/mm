@@ -1,19 +1,37 @@
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX sumo: <http://purl.org/ieee1872-owl/sumo-cora#>
+PREFIX ssn: <http://www.w3.org/ns/ssn/>
+PREFIX ssn-system: <http://www.w3.org/ns/ssn/systems/>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
 PREFIX mm: <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/>
 
-# Camera specs, the board each camera sits on, and its stereo partner.
-SELECT ?camera ?socket ?sensorChip ?resolution ?shutter ?board ?stereoPartner
+# Every camera: its device and socket, sensor specs, max frame rate, horizontal FOV, and stereo partner.
+SELECT ?device ?socket ?camera ?sensor ?width ?height ?shutter ?fps ?hfovDeg ?stereoPartner
 WHERE {
   ?camera a mm:Camera .
 
+  OPTIONAL { ?device ssn:hasSubSystem ?camera . }
   OPTIONAL { ?camera mm:boardSocket ?socket . }
-  OPTIONAL { ?camera mm:sensorChip ?sensorChip . }
-  OPTIONAL { ?camera mm:resolution ?resolution . }
-  OPTIONAL { ?camera mm:shutterType ?shutter . }
-  OPTIONAL { ?camera sumo:part ?board .
+  OPTIONAL {
+    ?camera mm:sensorModel ?model .
 
-    ?board mm:mxId [  ] . }
+    ?model rdfs:label ?sensor .
+
+    OPTIONAL { ?model mm:sensorWidth ?width . }
+    OPTIONAL { ?model mm:sensorHeight ?height . }
+    OPTIONAL { ?model mm:sensorShutterMode ?shutter . }
+  }
+  OPTIONAL {
+    ?camera ssn-system:hasSystemCapability / ssn-system:hasSystemProperty ?f .
+
+    ?f a ssn-system:Frequency ;
+      qudt:numericValue ?fps .
+  }
+  OPTIONAL {
+    ?camera ssn-system:hasSystemCapability / ssn-system:hasSystemProperty ?h .
+
+    ?h a mm:HorizontalFieldOfView ;
+      qudt:numericValue ?hfovDeg .
+  }
   OPTIONAL { ?camera mm:stereoPairWith | ^ mm:stereoPairWith ?stereoPartner . }
 }
-ORDER BY ?board ?socket ?camera
+ORDER BY ?device ?socket ?camera

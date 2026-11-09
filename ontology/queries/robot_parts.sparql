@@ -1,10 +1,12 @@
 PREFIX rdfs:   <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX sumo:   <http://purl.org/ieee1872-owl/sumo-cora#>
+PREFIX ssn:    <http://www.w3.org/ns/ssn/>
 PREFIX rparts: <http://purl.org/ieee1872-owl/rparts#>
 PREFIX mm:     <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology/>
 
 # Parts of the robot, grouped by IEEE 1872 role.
 # "physical part" follows sumo:part transitively (e.g. cameras -> camera board -> robot).
+# A subsystem (^ssn:hasSubSystem) counts as a part; the alignment says so, but SPARQL does not reason.
 SELECT ?role ?part ?label WHERE {
   {
     VALUES (?prop ?role) {
@@ -15,7 +17,7 @@ SELECT ?role ?part ?label WHERE {
     ?part ?prop mm:stretch4_1 .
   } UNION {
     BIND ("physical part" AS ?role)
-    ?part sumo:part+ mm:stretch4_1 .
+    ?part (sumo:part | ^ssn:hasSubSystem)+ mm:stretch4_1 .
   }
   OPTIONAL { ?part rdfs:label ?label . }
 }

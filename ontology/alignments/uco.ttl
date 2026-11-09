@@ -8,4 +8,5 @@
     owl:imports <http://www.semanticweb.org/efliao/ontologies/2026/10/mm-ontology-schema-platform> .
 
 mm:Computer rdfs:subClassOf observable:Computer .
+mm:CameraDevice rdfs:subClassOf observable:Device .
 mm:NetworkAdapter rdfs:subClassOf observable:NetworkInterface .

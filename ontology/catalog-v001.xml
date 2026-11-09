@@ -37,6 +37,9 @@
         uri="https://raw.githubusercontent.com/collections-ontology/collections-ontology/619e7b02646321174635fd04be658e338bf7d1d7/collections.owl" />
     <!-- W3C SOSA -->
     <uri name="http://www.w3.org/ns/sosa/" uri="https://www.w3.org/ns/sosa/sosa.ttl"/>
+    <!-- W3C SSN and its System Capabilities module -->
+    <uri name="http://www.w3.org/ns/ssn/" uri="https://www.w3.org/ns/ssn/ssn.ttl"/>
+    <uri name="http://www.w3.org/ns/ssn/systems/" uri="https://www.w3.org/ns/ssn/systems/ssn-system.ttl"/>
     <!-- ETSI SAREF core v4.1.1 -->
     <uri name="https://saref.etsi.org/core/v4.1.1/" uri="https://saref.etsi.org/core/v4.1.1/saref.ttl"/>
     <group id="Folder Repository, directory=, recursive=true, Auto-Update=true, version=2"
