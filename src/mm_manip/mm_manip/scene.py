@@ -2,10 +2,12 @@ import numpy as np
 import rclpy.duration
 import rclpy.time
 from geometry_msgs.msg import Point
+from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 from .errors import SkillError
+from .motion.trajectory import urdf_joint_positions
 from .transforms import transform_to_rt
 
 
@@ -14,12 +16,13 @@ class SceneError(SkillError):
 
 
 class Scene:
-    def __init__(self, node, base_frame="base_link", topic="~/target_markers"):
+    def __init__(self, node, base_frame="base_link"):
         self._node = node
         self._base_frame = base_frame
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, node)
-        self._marker_pub = node.create_publisher(MarkerArray, topic, 1)
+        self._marker_pub = node.create_publisher(MarkerArray, "~/target_markers", 1)
+        self._ghost_pub = node.create_publisher(JointState, "~/ghost_joint_states", 1)
 
     def lookup(self, header):
         if header.frame_id in ("", self._base_frame):
@@ -60,6 +63,12 @@ class Scene:
             ]
             markers.markers.append(m)
         self._marker_pub.publish(markers)
+
+    def publish_ghost(self, joints: dict):
+        msg = JointState()
+        msg.header.stamp = self._node.get_clock().now().to_msg()
+        msg.name, msg.position = urdf_joint_positions(joints)
+        self._ghost_pub.publish(msg)
 
     def _marker(self, stamp, marker_id, marker_type, rgb):
         m = Marker(id=marker_id, type=marker_type, action=Marker.ADD, ns="mm_manip")

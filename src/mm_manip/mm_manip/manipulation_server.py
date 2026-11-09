@@ -5,24 +5,19 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import PointStamped
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
-from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
 
 from mm_interfaces.action import Articulate, Grasp
 
-from .camera.camera import Camera
 from .cancel import CancelToken
 from .config import ArticulateConfig, GraspConfig, ServerConfig
 from .errors import Canceled, SkillError
-from .motion.robot import GripperSettings, Robot
-from .motion.trajectory import urdf_joint_positions
 from .perception.door import DoorType, GeminiDoorKeypoints, HandleType
 from .perception.door_locator import DoorLocator
 from .perception.gemini import GeminiClient, GeminiError
 from .perception.locator import Locator, PerceptionError
-from .scene import Scene
+from .runtime import build, gripper_settings
 from .skills import articulate, grasp
 from .skills.articulate import ArticulateGoal
 from .skills.grasp import GraspGoal
@@ -47,41 +42,18 @@ class ManipulationServer(Node):
         ArticulateConfig.declare(self)
         cfg = ServerConfig.from_node(self)
 
-        group = ReentrantCallbackGroup()
-        self._robot = Robot(
-            self,
-            cfg.fjt_action,
-            cfg.driver_joint,
-            max_step=cfg.max_step,
-            no_split_action_timeout=cfg.no_split_action_timeout,
-            fjt_mode=cfg.fjt_mode,
-            control_rate=cfg.control_rate,
-            path_settle_timeout=cfg.path_settle_timeout,
-            gripper=_gripper_settings(cfg),
-            callback_group=group,
-        )
-        self._scene = Scene(self, base_frame=cfg.base_frame)
-        camera = Camera(
-            self,
-            self._scene,
-            cfg.color_topic,
-            cfg.depth_topic,
-            cfg.camera_info_topic,
-            depth_compressed=cfg.depth_compressed,
-            sync_slop=cfg.sync_slop,
-            timeout=cfg.snapshot_timeout,
-            callback_group=group,
-        )
+        runtime = build(self, cfg)
+        group = runtime.callback_group
+        self._robot, self._scene = runtime.robot, runtime.scene
         self._locator = Locator(
             self,
-            camera,
+            runtime.camera,
             cfg.detect_service,
             service_timeout=cfg.service_timeout,
             depth_band=cfg.depth_band,
             callback_group=group,
         )
-        self._door_locator = DoorLocator(self, camera, ee_frame=cfg.ee_frame)
-        self._ghost_pub = self.create_publisher(JointState, "~/ghost_joint_states", 1)
+        self._door_locator = DoorLocator(self, runtime.camera, ee_frame=cfg.ee_frame)
 
         self._busy = False
         self._busy_lock = threading.Lock()
@@ -128,7 +100,7 @@ class ManipulationServer(Node):
     # Do not rename to _context: rclpy.Node uses self._context.
     def _skill_context(self, goal_handle, observer_type, shared, locator):
         cancel = CancelToken(lambda: goal_handle.is_cancel_requested)
-        self._robot.set_gripper(_gripper_settings(shared))
+        self._robot.set_gripper(gripper_settings(shared))
         return Context(
             robot=self._robot,
             locator=locator,
@@ -234,19 +206,6 @@ def _motion_message(shared, done: str) -> str:
     return "motion done (use_gripper is false, gripper not used)"
 
 
-def _gripper_settings(cfg) -> GripperSettings:
-    return GripperSettings(
-        joint=cfg.gripper_joint,
-        state_joint=cfg.gripper_state_joint,
-        open=cfg.gripper_open,
-        closed=cfg.gripper_closed,
-        closed_finger=cfg.gripper_closed_finger,
-        holding_margin=cfg.gripper_holding_margin,
-        stall_time=cfg.gripper_stall_time,
-        timeout=cfg.gripper_timeout,
-    )
-
-
 class _DoorFinder:
     def __init__(self, door_locator, cfg):
         self._door_locator = door_locator
@@ -284,10 +243,7 @@ class _Observer:
 
     def ghost(self, waypoints):
         for joints in waypoints:
-            msg = JointState()
-            msg.header.stamp = self._server.get_clock().now().to_msg()
-            msg.name, msg.position = urdf_joint_positions(joints)
-            self._server._ghost_pub.publish(msg)
+            self._server._scene.publish_ghost(joints)
             self._cancel.sleep(0.3)
 
     def _log(self, message):

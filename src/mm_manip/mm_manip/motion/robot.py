@@ -244,12 +244,12 @@ class Robot:
         with_base = any(j in points[-1] for j in BASE_JOINTS)
         if with_base:
             points = [{**dict.fromkeys(BASE_JOINTS, 0.0), **p} for p in points]
-        base_start = self._odom_pose(max_age=0.5) if with_base else None
+        base_start = self.odom_pose(max_age=0.5) if with_base else None
 
         def measured():
             joints = self.arm_joints(max_age=0.5)
             if with_base:
-                pose = self._odom_pose(max_age=0.5)
+                pose = self.odom_pose(max_age=0.5)
                 joints[BASE_X], joints[BASE_Y], joints[BASE_THETA] = displacement(
                     base_start, pose
                 )
@@ -339,7 +339,7 @@ class Robot:
     ):
         """Translate by (x, y), then turn by theta: the order of the IK base joints."""
         gains = gains or BaseGains()
-        start = self._odom_pose(max_age=0.5)
+        start = self.odom_pose(max_age=0.5)
         distance = (base_x**2 + base_y**2) ** 0.5
         timeout = 5.0 + 2.0 * (
             distance / gains.max_linear + abs(base_theta) / gains.max_angular
@@ -357,7 +357,7 @@ class Robot:
                         raise MotionError(
                             f"base motion timed out after {timeout:.0f} s"
                         )
-                    vx, vy, w, done = command(self._odom_pose(max_age=0.5))
+                    vx, vy, w, done = command(self.odom_pose(max_age=0.5))
                     if done:
                         break
                     self._publish_twist(vx, vy, w)
@@ -367,7 +367,7 @@ class Robot:
             self._publish_twist(0.0, 0.0, 0.0)
             self._base_moving = False
 
-    def _odom_pose(self, max_age: float) -> Pose2D:
+    def odom_pose(self, max_age: float) -> Pose2D:
         with self._lock:
             odom = self._odom
         if odom is None:
