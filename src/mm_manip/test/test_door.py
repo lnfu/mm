@@ -6,23 +6,18 @@ import numpy as np
 import pytest
 
 from mm_manip.cancel import CancelToken
-from mm_manip.perception.door import (
-    CORNERS,
-    Door,
+from mm_manip.geometry.plane import fit_plane, intersect_plane, ransac_iterations
+from mm_manip.geometry.points import pixel_rays
+from mm_manip.skills.articulate.door import CORNERS, Door, DoorType, HandleType
+from mm_manip.skills.articulate.keypoints import (
     DoorKeypoints,
-    DoorType,
     GeminiDoorKeypoints,
-    HandleType,
     build_prompt,
     encode_jpeg,
-    fit_plane,
     hinge_edge_problem,
-    intersect_plane,
-    locate_door,
     parse_response,
-    pixel_rays,
-    ransac_iterations,
 )
+from mm_manip.skills.articulate.locate import locate_door
 
 K = np.array([[500.0, 0, 320], [0, 500.0, 240], [0, 0, 1]])
 W, H = 640, 480

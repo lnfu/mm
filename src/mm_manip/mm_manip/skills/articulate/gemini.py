@@ -1,7 +1,7 @@
 import os
 import threading
 
-from ..cancel import CancelToken
+from ...cancel import CancelToken
 
 
 class GeminiError(RuntimeError):

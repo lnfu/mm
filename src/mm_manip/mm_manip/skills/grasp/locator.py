@@ -5,15 +5,11 @@ from sensor_msgs.msg import CompressedImage
 
 from mm_interfaces.srv import Detect
 
-from ..camera.camera import Camera, header
-from ..camera.images import decode_mask_png
-from ..cancel import CancelToken
-from ..errors import SkillError
-from .localize import mask_points, touches_edge, transform_points
-
-
-class PerceptionError(SkillError):
-    pass
+from ...camera.camera import Camera, header
+from ...camera.images import decode_mask_png
+from ...cancel import CancelToken
+from ...errors import PerceptionError
+from ...geometry.points import mask_points, touches_edge, transform_points
 
 
 @dataclass(frozen=True)

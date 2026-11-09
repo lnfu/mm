@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from mm_manip.perception.localize import (
+from mm_manip.geometry.points import (
     center_and_width,
     mask_points,
     resize_mask,

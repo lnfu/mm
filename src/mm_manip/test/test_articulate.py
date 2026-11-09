@@ -6,17 +6,19 @@ import pytest
 from mm_ik.solver import IKSolver
 from mm_manip.cancel import CancelToken
 from mm_manip.config import ArticulateConfig, ServerConfig
-from mm_manip.perception.door import Door, DoorType, HandleType
-from mm_manip.skills import articulate
-from mm_manip.skills.articulate import (
-    ArticulateGoal,
-    Phase,
+from mm_manip.errors import ArticulateFailed, OutOfReach
+from mm_manip.skills.articulate import skill as articulate
+from mm_manip.skills.articulate.door import (
+    Door,
+    DoorType,
+    HandleType,
     door_from_points,
     hinge_axis,
     into_handle,
     opening_arc,
     with_handle_offset,
 )
+from mm_manip.skills.articulate.skill import ArticulateGoal, Phase
 from mm_manip.skills.primitives import Context
 
 stretch4_urdf = pytest.importorskip("stretch4_urdf")
@@ -247,7 +249,7 @@ def test_gripper_opens_before_reaching_and_closes_on_the_handle(urdf, handle):
 def test_missed_handle_fails_before_pulling(urdf, handle):
     cfg, shared, ctx = make_case(urdf)
     ctx.robot.holding = False
-    with pytest.raises(articulate.ArticulateFailed, match="missed the handle"):
+    with pytest.raises(ArticulateFailed, match="missed the handle"):
         articulate.run(point_goal(handle, 0.30), cfg, shared, ctx)
     assert len(ctx.robot.paths) == 2
 
@@ -273,5 +275,5 @@ def test_unsupported_doors_are_not_implemented(urdf, found):
 def test_handle_out_of_reach(urdf):
     cfg, shared, ctx = make_case(urdf)
     far = np.array([2.0, 0.0, 0.7])
-    with pytest.raises(articulate.OutOfReach):
+    with pytest.raises(OutOfReach):
         articulate.run(point_goal(far, 0.3), cfg, shared, ctx)

@@ -1,9 +1,9 @@
-"""Debug picture of Gemini's door keypoints: color and depth side by side. No ROS."""
-
 import cv2
 import numpy as np
 
-from .door import CORNERS, DoorKeypoints, quad_mask
+from .door import CORNERS
+from .keypoints import DoorKeypoints
+from .locate import quad_mask
 
 _QUAD = ("top_left", "top_right", "bottom_right", "bottom_left")
 
@@ -15,13 +15,7 @@ def draw_door_keypoints(
     shrink: float,
     ee_pixel=None,
 ) -> np.ndarray:
-    """BGR image: left the color image, right the depth, each with the handle
-    (red), the corners (yellow) and the shrunk quad the plane is fitted in (green).
-    On the color image, `ee_pixel` (magenta): where TF puts the gripper's grasp
-    center; it should sit between the fingertips.
-
-    `keypoints` and `ee_pixel` are pixels of `depth` (as locate_door takes them).
-    """
+    """Color (left) and depth (right) with the keypoints, which are depth pixels."""
     sx = color.shape[1] / depth.shape[1]
     sy = color.shape[0] / depth.shape[0]
 
@@ -33,7 +27,7 @@ def draw_door_keypoints(
 
     left = color.copy()
     valid = depth > 0
-    no_depth = (128, 128, 128)  # gray, not black: TURBO's near end is almost black
+    no_depth = (128, 128, 128)  # gray: the near end of TURBO is almost black
     right = np.full((*depth.shape, 3), no_depth, np.uint8)
     if valid.any():
         lo, hi = np.percentile(depth[valid], (2, 98))

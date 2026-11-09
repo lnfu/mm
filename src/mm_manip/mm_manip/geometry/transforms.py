@@ -13,6 +13,5 @@ def quaternion_to_matrix(q) -> np.ndarray:
 
 
 def transform_to_rt(transform):
-    """geometry_msgs/Transform -> (R (3, 3), t (3,))."""
     t = transform.translation
     return quaternion_to_matrix(transform.rotation), np.array([t.x, t.y, t.z])

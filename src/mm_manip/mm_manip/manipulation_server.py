@@ -12,15 +12,17 @@ from mm_interfaces.action import Articulate, Grasp
 
 from .cancel import CancelToken
 from .config import ArticulateConfig, GraspConfig, ServerConfig
-from .errors import Canceled, SkillError
-from .perception.door import DoorType, GeminiDoorKeypoints, HandleType
-from .perception.door_locator import DoorLocator
-from .perception.gemini import GeminiClient, GeminiError
-from .perception.locator import Locator, PerceptionError
+from .errors import Canceled, PerceptionError, SkillError
 from .runtime import build, gripper_settings
-from .skills import articulate, grasp
-from .skills.articulate import ArticulateGoal
-from .skills.grasp import GraspGoal
+from .skills.articulate import skill as articulate
+from .skills.articulate.door import DoorType, HandleType
+from .skills.articulate.gemini import GeminiClient, GeminiError
+from .skills.articulate.keypoints import GeminiDoorKeypoints
+from .skills.articulate.locator import DoorLocator
+from .skills.articulate.skill import ArticulateGoal
+from .skills.grasp import skill as grasp
+from .skills.grasp.locator import Locator
+from .skills.grasp.skill import GraspGoal
 from .skills.primitives import Context
 
 for _phases, _feedback in (

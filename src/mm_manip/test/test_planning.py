@@ -1,14 +1,13 @@
 import numpy as np
 import pytest
 
-from mm_manip.motion.planning import (
+from mm_manip.motion.planning import PlanningError, reach
+from mm_manip.skills.grasp.plan import (
     FREE_YAW_ORIENTATION_COST,
-    PlanningError,
     fixed_grasp_rotation,
     grasp_poses,
     make_solvers,
     plan_grasp,
-    reach,
 )
 
 

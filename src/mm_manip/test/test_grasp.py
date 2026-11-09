@@ -7,10 +7,10 @@ import pytest
 from mm_ik.solver import IKSolver
 from mm_manip.cancel import CancelToken
 from mm_manip.config import GraspConfig, ServerConfig
-from mm_manip.errors import Canceled
-from mm_manip.skills import grasp
-from mm_manip.skills.grasp import GraspGoal, Phase, object_width
-from mm_manip.skills.primitives import Context, OutOfReach
+from mm_manip.errors import Canceled, GraspFailed, OutOfReach
+from mm_manip.skills.grasp import skill as grasp
+from mm_manip.skills.grasp.skill import GraspGoal, Phase, object_width
+from mm_manip.skills.primitives import Context
 
 stretch4_urdf = pytest.importorskip("stretch4_urdf")
 
@@ -201,7 +201,7 @@ def test_cancel_stops_at_the_next_phase(urdf, reachable):
 
 def test_too_wide_object_is_rejected(urdf, reachable):
     cfg, shared, ctx = make_case(urdf, reachable, gripper_max_opening=0.05)
-    with pytest.raises(grasp.GraspFailed, match="wider than the gripper"):
+    with pytest.raises(GraspFailed, match="wider than the gripper"):
         grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert len(ctx.robot.arm_moves) == 1
 
@@ -223,7 +223,7 @@ def test_gripper_opens_before_the_approach_and_closes_before_the_lift(urdf, reac
 def test_empty_gripper_fails_before_lifting(urdf, reachable):
     cfg, shared, ctx = make_case(urdf, reachable)
     ctx.robot.holding = False
-    with pytest.raises(grasp.GraspFailed, match="nothing grasped"):
+    with pytest.raises(GraspFailed, match="nothing grasped"):
         grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert ctx.observer.phases[-1] == Phase.GRASPING
     assert len(ctx.robot.arm_moves) == 2

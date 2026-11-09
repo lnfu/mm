@@ -5,13 +5,15 @@ import cv2
 from rclpy.logging import get_logging_directory
 from sensor_msgs.msg import CompressedImage
 
-from ..camera.camera import Camera, header
-from ..camera.frame import Frame
-from ..cancel import CancelToken
-from .door import Door, KeypointSource, hinge_edge_problem, locate_door
-from .door_debug import draw_door_keypoints
+from ...camera.camera import Camera, header
+from ...camera.frame import Frame
+from ...cancel import CancelToken
+from ...errors import PerceptionError
+from .debug import draw_door_keypoints
+from .door import Door
 from .gemini import GeminiError
-from .locator import PerceptionError
+from .keypoints import KeypointSource, hinge_edge_problem
+from .locate import locate_door
 
 
 class DoorLocator:

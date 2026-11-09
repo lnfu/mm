@@ -2,11 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..cancel import CancelToken
-from ..errors import SkillError
-
-
-class OutOfReach(SkillError):
-    pass
+from ..errors import OutOfReach
 
 
 @dataclass

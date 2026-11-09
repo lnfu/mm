@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 import numpy as np
 import pytest
 
-from mm_manip.transforms import quaternion_to_matrix, transform_to_rt
+from mm_manip.geometry.transforms import quaternion_to_matrix, transform_to_rt
 
 
 def test_quaternion_to_matrix():

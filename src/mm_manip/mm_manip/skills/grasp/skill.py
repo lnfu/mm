@@ -4,15 +4,11 @@ from enum import IntEnum
 import numpy as np
 import pinocchio as pin
 
-from ..errors import SkillError
-from ..motion.base_control import BaseGains
-from ..motion.planning import fixed_grasp_rotation, make_solvers, plan_grasp
-from ..perception.localize import center_and_width
-from .primitives import approach_with_base
-
-
-class GraspFailed(SkillError):
-    pass
+from ...errors import GraspFailed
+from ...geometry.points import center_and_width
+from ...motion.base_control import BaseGains
+from ..primitives import approach_with_base
+from .plan import fixed_grasp_rotation, make_solvers, plan_grasp
 
 
 class Phase(IntEnum):
