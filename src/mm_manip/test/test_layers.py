@@ -1,14 +1,9 @@
-"""The pure modules must not pull in ROS, so the grasp logic stays testable anywhere.
-
-ROS lives in manipulation_server, scene, motion/robot and
-perception/{locator,door_locator,snapshot}.
-A new module goes in PURE unless it talks to ROS.
-"""
-
 import subprocess
 import sys
 
+# Add each new module that does not use ROS.
 PURE = [
+    "mm_manip.cancel",
     "mm_manip.config",
     "mm_manip.errors",
     "mm_manip.transforms",
@@ -29,7 +24,7 @@ ROS_PREFIXES = ("rclpy", "message_filters", "tf2_ros", "mm_interfaces")
 
 
 def test_pure_modules_do_not_import_ros():
-    # A fresh interpreter: other tests in this run may have imported ROS already.
+    # A new interpreter: other tests can import ROS first.
     code = (
         "import sys\n"
         + "".join(f"import {m}\n" for m in PURE)

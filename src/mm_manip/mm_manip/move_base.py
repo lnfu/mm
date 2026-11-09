@@ -1,15 +1,6 @@
-"""Measure base odometry: move the base as articulate does, then measure by hand.
+"""Move the base on a velocity path, then print the odometry.
 
-Stop manipulation_server first (this node takes its name to read its parameters):
-
-  python3 -m mm_manip.move_base 0.0 0.10 \\
-      --ros-args --params-file src/mm_manip/config/manipulation.yaml
-  python3 -m mm_manip.move_base 0.137 0.099 --theta-deg 0 --ros-args ...
-
-x, y (m) are along base_link's x (forward) and y (left) where the base starts.
-The base moves on a velocity path (Robot.follow_path, closed loop on /wheel_odom,
-articulate's path gains and tolerances) with the arm held where it is, then the
-displacement /wheel_odom saw is printed: compare it with a tape measure.
+Stop manipulation_server first: this node uses its name to read its parameters.
 """
 
 import argparse
@@ -23,6 +14,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.utilities import remove_ros_args
 
+from .cancel import CancelToken
 from .config import ArticulateConfig, ServerConfig
 from .motion.base_control import displacement
 from .motion.robot import MotionError, Robot
@@ -55,8 +47,8 @@ def run(args, robot, cfg):
         min_segment=cfg.path_min_segment,
     )
     target = {**arm, BASE_X: args.x, BASE_Y: args.y, BASE_THETA: theta}
-    robot.follow_path([target], lambda: False, gains)
-    time.sleep(1.0)  # let the base stop and /wheel_odom catch up
+    robot.follow_path([target], CancelToken(), gains)
+    time.sleep(1.0)
     dx, dy, dyaw = displacement(start, robot._odom_pose(max_age=0.5))
     print(
         f"/wheel_odom says: x {dx:+.3f} m, y {dy:+.3f} m, theta "

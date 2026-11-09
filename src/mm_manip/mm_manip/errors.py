@@ -1,2 +1,6 @@
 class Canceled(Exception):
-    """The action goal was canceled; whatever moves must stop."""
+    pass
+
+
+class SkillError(RuntimeError):
+    """An expected failure. The goal aborts with this message."""

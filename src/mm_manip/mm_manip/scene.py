@@ -1,5 +1,3 @@
-"""TF lookups into base_link and RViz markers for the grasp target."""
-
 import numpy as np
 import rclpy.duration
 import rclpy.time
@@ -7,10 +5,11 @@ from geometry_msgs.msg import Point
 from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
+from .errors import SkillError
 from .transforms import transform_to_rt
 
 
-class SceneError(RuntimeError):
+class SceneError(SkillError):
     pass
 
 
@@ -23,13 +22,9 @@ class Scene:
         self._marker_pub = node.create_publisher(MarkerArray, topic, 1)
 
     def lookup(self, header):
-        """(R, t) taking points in header.frame_id at header.stamp into base_link.
-
-        A zero stamp uses the latest TF (e.g. a hand-written MODE_POINT target).
-        """
         if header.frame_id in ("", self._base_frame):
             return np.eye(3), np.zeros(3)
-        stamp = rclpy.time.Time.from_msg(header.stamp)
+        stamp = rclpy.time.Time.from_msg(header.stamp)  # zero: the latest TF
         try:
             tf = self._tf_buffer.lookup_transform(
                 self._base_frame,
@@ -37,17 +32,15 @@ class Scene:
                 stamp if stamp.nanoseconds else rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=0.5),
             )
-        except Exception as e:  # tf2 raises several unrelated exception types
+        except Exception as e:
             raise SceneError(f"TF {self._base_frame} <- {header.frame_id}: {e}") from e
         return transform_to_rt(tf.transform)
 
     def to_base(self, header, point) -> np.ndarray:
-        """geometry_msgs/Point in header.frame_id -> (3,) in base_link."""
         R, t = self.lookup(header)
         return R @ np.array([point.x, point.y, point.z]) + t
 
     def publish_markers(self, center, poses=()):
-        """Object center sphere and gripper target arrows, in base_link."""
         stamp = self._node.get_clock().now().to_msg()
         markers = MarkerArray()
         markers.markers.append(Marker(action=Marker.DELETEALL))

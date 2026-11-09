@@ -5,24 +5,20 @@ import pinocchio as pin
 
 from mm_ik.solver import ARM_JOINT_NAMES, IKSolver
 
-# IK orientation cost per grasp_center_link axis (x, y, z). Zero on z lets the wrist
-# yaw aim at objects slightly off the gripper's line while the gripper stays level.
+from ..errors import SkillError
+
+# No cost about z: the wrist yaw can aim, and the gripper stays level.
 FREE_YAW_ORIENTATION_COST = (0.5, 0.5, 0.0)
 
-
-# Base stage of the IK (only used when the arm alone cannot reach): moving the base
-# is cheap, rotating it less so (a holonomic base should translate), and the arm is
-# dearer and biased to a comfortable posture, so the base does the travelling and the
-# arm keeps room for the approach.
+# The base translates. It turns and moves the arm less.
 BASE_STAGE_POSTURE_COST = 1e-2
 BASE_STAGE_POSTURE_COSTS = {"base_x": 1e-4, "base_y": 1e-4, "base_theta": 1e-1}
 
-# Defaults for make_solvers.
 MAX_AIM_YAW = np.deg2rad(10)
 MAX_BASE_ROTATION = np.deg2rad(45)
 
 
-class PlanningError(RuntimeError):
+class PlanningError(SkillError):
     pass
 
 
@@ -36,11 +32,6 @@ def make_solvers(
     max_base_rotation=MAX_BASE_ROTATION,
     **kwargs,
 ):
-    """(arm_solver, base_solver) for plan_grasp; base_solver is None when base_dofs is empty.
-
-    With free_yaw, the wrist yaw may aim at most max_aim_yaw away from grasp_yaw
-    (about +-5 cm sideways at 10 deg); anything further is left to the base.
-    """
     limits = {
         "base_x_joint": (-max_base_translation, max_base_translation),
         "base_y_joint": (-max_base_translation, max_base_translation),
@@ -65,26 +56,12 @@ def make_solvers(
 
 
 def approach_axis(rotation: np.ndarray) -> np.ndarray:
-    """The gripper points along +x of grasp_center_link."""
     return rotation[:, 0]
 
 
 def grasp_poses(
     center, rotation, pregrasp_distance=0.10, n_waypoints=6, lift_height=0.10
 ):
-    """Build the pose sequence for one grasp.
-
-    Args:
-        center: (3,) object center in base_link.
-        rotation: (3, 3) fixed gripper orientation in base_link.
-        pregrasp_distance: back-off along the approach axis.
-        n_waypoints: poses on the straight line pre-grasp -> center, both ends included.
-        lift_height: how far to lift along base_link +z after closing.
-
-    Returns:
-        dict with 'pregrasp' (SE3), 'approach' (list of SE3, starts at pregrasp,
-        ends at the object), 'lift' (SE3).
-    """
     if n_waypoints < 2:
         raise ValueError("n_waypoints must be >= 2")
     center = np.asarray(center, float)
@@ -98,11 +75,6 @@ def grasp_poses(
 
 
 def fixed_grasp_rotation(solver, wrist: dict) -> np.ndarray:
-    """Gripper orientation in base_link for the given wrist angles.
-
-    Only the wrist joints affect the orientation (lift and arm are prismatic), so
-    the other joints are filled with zeros.
-    """
     joints = {name: 0.0 for name in ARM_JOINT_NAMES}
     joints.update(wrist)
     return solver.fk(joints).rotation
@@ -110,13 +82,11 @@ def fixed_grasp_rotation(solver, wrist: dict) -> np.ndarray:
 
 @dataclass
 class GraspPlan:
-    base: dict  # base_x/base_y/base_theta to execute first, {} when the base is locked
-    pregrasp: dict  # arm joints
-    approach: list  # arm joints, pre-grasp -> object (pre-grasp excluded)
-    lift: dict  # arm joints
-    poses: dict = field(
-        default_factory=dict
-    )  # from grasp_poses(), in the starting base_link
+    base: dict  # base motion to do first; {} if the base stays
+    pregrasp: dict
+    approach: list  # without the pre-grasp
+    lift: dict
+    poses: dict = field(default_factory=dict)  # in the start base_link
 
 
 def _arm_only(joints: dict) -> dict:
@@ -131,11 +101,6 @@ def _acceptable(result, accept_position_error=0.0, accept_orientation_error=0.0)
 
 
 def _check(result, what, accept_position_error=0.0, accept_orientation_error=0.0):
-    """Accept converged results, and unconverged ones whose residual is small enough.
-
-    With the base locked the arm cannot move sideways, so a target slightly off the
-    gripper's line never converges; a ~1 cm miss is still fine for grasping.
-    """
     if _acceptable(result, accept_position_error, accept_orientation_error):
         return
     raise PlanningError(
@@ -157,16 +122,7 @@ def plan_grasp(
     base_solver=None,
     base_posture=None,
 ) -> GraspPlan:
-    """Plan base motion + arm waypoints for one grasp, using the base only if needed.
-
-    First the arm alone (base locked) tries the whole grasp. If any pose is out of
-    reach and a base_solver is given, the base_solver places the pre-grasp with the
-    arm biased to base_posture, the base moves there once, and the arm alone solves
-    the approach line and the lift as seen from the moved base.
-
-    Raises PlanningError if any pose is unreachable, i.e. its IK neither converges
-    nor ends within accept_position_error (m) and accept_orientation_error (rad).
-    """
+    """Try the arm alone. If it cannot reach, move the base once to the pre-grasp."""
     accept = {
         "accept_position_error": accept_position_error,
         "accept_orientation_error": accept_orientation_error,
@@ -194,7 +150,7 @@ def reach(
     accept_position_error=0.0,
     accept_orientation_error=0.0,
 ):
-    """(base motion, arm joints) to put the ee at `target`, using the base only if needed."""
+    """Returns (base motion, arm joints). The base moves only if necessary."""
     accept = {
         "accept_position_error": accept_position_error,
         "accept_orientation_error": accept_orientation_error,
@@ -226,7 +182,7 @@ def _plan(solver, arm_solver, start, poses, posture, accept) -> GraspPlan:
     arm = []
     joints = _arm_only(pre.joints)
     for i, target in enumerate(targets):
-        r = arm_solver.solve(joints, target)  # warm start from the previous point
+        r = arm_solver.solve(joints, target)
         _check(
             r,
             f"approach waypoint {i + 1}" if i < len(targets) - 1 else "lift",
@@ -248,14 +204,7 @@ def solve_waypoints(
     postures=None,
     partial: bool = False,
 ) -> list:
-    """Joints for each target pose in turn, each solve warm-started from the last.
-
-    The targets are ee poses in base_link at the start (base joints are offsets
-    from there), so the result keeps the solver's base joints too.
-    postures: one posture dict (or None) per target, see IKSolver.solve.
-    Raises PlanningError naming the first unreachable target, or with partial
-    returns the joints up to it (possibly none).
-    """
+    """With partial, stop at the first target that fails, and return the path to it."""
     accept = {
         "accept_position_error": accept_position_error,
         "accept_orientation_error": accept_orientation_error,

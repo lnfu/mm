@@ -1,5 +1,3 @@
-"""Door perception on the robot: snapshot -> keypoints (Gemini) -> door plane -> 3D."""
-
 import os
 import time
 
@@ -10,7 +8,7 @@ from rclpy.logging import get_logging_directory
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Header
 
-from ..errors import Canceled
+from ..cancel import CancelToken
 from ..scene import SceneError
 from .door import (
     Door,
@@ -55,17 +53,11 @@ class DoorLocator:
         self,
         prompt: str,
         source: KeypointSource,
-        should_cancel,
+        cancel: CancelToken,
         depth_band=0.15,
         shrink=0.15,
         debug_dir="",
     ) -> Door:
-        """The door `prompt` describes, in the base frame.
-
-        Call it with the camera still. Logs how long each stage took. Raises
-        PerceptionError (no camera data, no keypoints, the hinge edge out of view
-        (see hinge_edge_problem), no depth on the door, TF missing) or Canceled.
-        """
         t0 = time.monotonic()
         try:
             snap = take_snapshot(
@@ -74,15 +66,13 @@ class DoorLocator:
                 depth_compressed=self._depth_compressed,
                 slop=self._sync_slop,
                 timeout=self._snapshot_timeout,
-                should_cancel=should_cancel,
+                cancel=cancel,
                 callback_group=self._group,
             )
         except SnapshotError as e:
             raise PerceptionError(str(e)) from e
-        if snap is None:
-            raise Canceled()
         color_msg, depth_msg, info = snap
-        # Now, not after Gemini: the TF buffer keeps only the last ~10 s.
+        # Look up TF now: the buffer keeps only about 10 s, and Gemini is slow.
         try:
             camera_to_base = self._scene.lookup(color_msg.header)
         except SceneError as e:
@@ -103,7 +93,7 @@ class DoorLocator:
 
         try:
             keypoints = source.keypoints(
-                color, prompt, (depth.shape[1], depth.shape[0]), should_cancel
+                color, prompt, (depth.shape[1], depth.shape[0]), cancel
             )
         except (GeminiError, ValueError) as e:
             raise PerceptionError(f"keypoints: {e}") from e
@@ -133,9 +123,7 @@ class DoorLocator:
         return door
 
     def _project_ee(self, header, camera_to_base, K):
-        """Pixel (in the depth image) where TF puts the ee frame (between the
-        fingertips, which the camera sees), or None. Checks the camera-to-gripper
-        calibration: it should land between the fingertips in the image."""
+        """Pixel of the ee frame, to check the camera calibration in the debug image."""
         try:
             ee_to_base = self._scene.lookup(
                 Header(frame_id=self._ee_frame, stamp=header.stamp)
@@ -158,11 +146,6 @@ class DoorLocator:
     def _debug(
         self, color, depth, keypoints, shrink, source, color_msg, debug_dir, ee_pixel
     ):
-        """Publish and save the keypoints drawn on color and depth.
-
-        Saved in debug_dir, or "" for <ROS log dir>/door_debug (ROS_LOG_DIR, else
-        ~/.ros/log).
-        """
         logger = self._node.get_logger()
         answer = getattr(source, "last_answer", None)
         if answer is not None:

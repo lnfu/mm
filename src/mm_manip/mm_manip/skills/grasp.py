@@ -1,24 +1,22 @@
-"""Grasp skill."""
-
 from dataclasses import dataclass
 from enum import IntEnum
 
 import numpy as np
 import pinocchio as pin
 
+from ..errors import SkillError
 from ..motion.base_control import BaseGains
 from ..motion.planning import fixed_grasp_rotation, make_solvers, plan_grasp
 from ..perception.localize import center_and_width
 from .primitives import approach_with_base
 
 
-class GraspFailed(RuntimeError):
+class GraspFailed(SkillError):
     pass
 
 
 class Phase(IntEnum):
-    """Same values as the phases in mm_interfaces/action/Grasp feedback."""
-
+    # Values match the feedback phases in Grasp.action.
     MOVING_TO_START = 0
     DETECTING = 1
     APPROACHING = 2
@@ -28,20 +26,11 @@ class Phase(IntEnum):
 
 @dataclass(frozen=True)
 class GraspGoal:
-    prompt: str = ""  # detect this with the camera, or
-    point: np.ndarray | None = None  # grasp here (base frame), without the camera
+    prompt: str = ""
+    point: np.ndarray | None = None  # base frame, no camera
 
 
 def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
-    """Grasp once; returns the object center in the final base frame.
-
-    cfg is the GraspConfig and shared the ServerConfig of this goal.
-
-    ctx.observer gets phase(Phase), target(center), plan(center, plan) and, in
-    dry_run, ghost(arm waypoints) instead of any motion.
-    Raises GraspFailed, OutOfReach, PlanningError, Canceled, and the robot's and
-    the locator's errors.
-    """
     arm_solver, base_solver = _solvers(cfg, shared, ctx.robot.urdf)
     rotation = fixed_grasp_rotation(arm_solver, cfg.grasp_wrist)
 
@@ -49,8 +38,8 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
     if shared.dry_run:
         current = cfg.start_pose
     else:
-        ctx.robot.move_arm(ctx.robot.arm_joints(), [cfg.start_pose], ctx.should_cancel)
-        ctx.sleep(shared.settle_time)
+        ctx.robot.move_arm(ctx.robot.arm_joints(), [cfg.start_pose], ctx.cancel)
+        ctx.cancel.sleep(shared.settle_time)
         current = ctx.robot.arm_joints()
 
     ctx.phase(Phase.DETECTING)
@@ -81,7 +70,7 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
         ctx.phase(Phase.DETECTING)
         if goal.point is None:
             center = _detect(goal, cfg, ctx, rotation)
-        else:  # no camera: trust the planned base motion
+        else:  # no camera: use the planned base motion
             moved = base_solver.base_motion({**plan.pregrasp, **plan.base})
             center = moved.actInv(pin.SE3(np.eye(3), center)).translation
         ctx.observer.target(center)
@@ -112,20 +101,20 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
     )
 
     if shared.use_gripper:
-        ctx.robot.open_gripper(ctx.should_cancel)
+        ctx.robot.open_gripper(ctx.cancel)
     else:
         ctx.log.warn("use_gripper is false: not opening the gripper")
-    ctx.robot.move_arm(current, [plan.pregrasp] + plan.approach, ctx.should_cancel)
+    ctx.robot.move_arm(current, [plan.pregrasp] + plan.approach, ctx.cancel)
 
     ctx.phase(Phase.GRASPING)
     if shared.use_gripper:
-        if not ctx.robot.close_gripper(ctx.should_cancel):
+        if not ctx.robot.close_gripper(ctx.cancel):
             raise GraspFailed("gripper closed all the way: nothing grasped")
     else:
         ctx.log.warn("use_gripper is false: not closing the gripper")
 
     ctx.phase(Phase.LIFTING)
-    ctx.robot.move_arm(plan.approach[-1], [plan.lift], ctx.should_cancel)
+    ctx.robot.move_arm(plan.approach[-1], [plan.lift], ctx.cancel)
     return center
 
 
@@ -149,8 +138,7 @@ def _solvers(cfg, shared, urdf):
 
 
 def _detect(goal, cfg, ctx, rotation):
-    """The center of goal.prompt in the base frame (the arm must be still)."""
-    seen = ctx.locator.locate(goal.prompt, ctx.should_cancel)
+    seen = ctx.locator.locate(goal.prompt, ctx.cancel)
     width = object_width(seen.points, rotation)
     ctx.log.info(f"{seen.label}: {len(seen.points)} points, width {width * 100:.1f} cm")
     if width > cfg.gripper_max_opening:
@@ -161,10 +149,5 @@ def _detect(goal, cfg, ctx, rotation):
 
 
 def object_width(points: np.ndarray, rotation: np.ndarray) -> float:
-    """Extent of the object points (base frame) along the gripper's closing axis, the
-    y axis of grasp_center_link (`rotation`).
-
-    TODO[lnfu] confirm the closing axis on the robot (finger joints rotate about z,
-    offset along y).
-    """
+    # TODO[lnfu] confirm on the robot that the gripper closes along its y axis.
     return center_and_width(points @ rotation, width_axis=1)[1]

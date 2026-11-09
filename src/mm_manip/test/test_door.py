@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import pytest
 
+from mm_manip.cancel import CancelToken
 from mm_manip.perception.door import (
     CORNERS,
     Door,
@@ -84,7 +85,7 @@ def test_parse_door_types(name, door_type):
         answer(top_left="here"),
         answer(left_edge_visible="yes"),
         answer(right_edge_visible=None),
-        json.dumps({"type": "prismatic", "handle": [1, 2]}),  # no corners
+        json.dumps({"type": "prismatic", "handle": [1, 2]}),
     ],
 )
 def test_parse_rejects_other_answers(text):
@@ -132,9 +133,7 @@ def test_drawer_has_no_hinge_problem():
 
 
 def test_door_types_match_the_action():
-    # Articulate.action result: TYPE_UNKNOWN=0, REVOLUTE_LEFT=1, REVOLUTE_RIGHT=2, PRISMATIC=3
     assert [int(t) for t in DoorType] == [0, 1, 2, 3]
-    # HANDLE_UNKNOWN=0, BAR_VERTICAL=1, BAR_HORIZONTAL=2, KNOB=3, RECESSED=4
     assert [int(h) for h in HandleType] == [0, 1, 2, 3, 4]
 
 
@@ -150,22 +149,20 @@ def test_fit_plane_ignores_a_protruding_handle():
     rng = np.random.default_rng(0)
     xy = rng.uniform(-0.2, 0.2, size=(400, 2))
     tilt = np.deg2rad(20)
-    # Plane through (0, 0, 0.8), tilted about the camera y axis.
     z = 0.8 + xy[:, 0] * np.tan(tilt)
     points = np.column_stack((xy, z))
-    points[:40, 2] -= 0.04  # a handle 4 cm in front of the door
+    points[:40, 2] -= 0.04
     normal, d = fit_plane(points)
     expected = np.array([np.sin(tilt), 0.0, -np.cos(tilt)])
     assert normal == pytest.approx(expected, abs=1e-3)
-    assert d < 0  # faces the camera
+    assert d < 0
     assert normal @ np.array([0, 0, 0.8]) == pytest.approx(d, abs=1e-3)
 
 
 def test_fit_plane_keeps_the_door_when_40_percent_is_another_panel():
     rng = np.random.default_rng(1)
     door = np.column_stack((rng.uniform(-0.2, 0.2, (600, 2)), np.full(600, 0.8)))
-    door[:, 2] += rng.normal(0, 0.003, 600)  # depth noise
-    # A side panel, perpendicular to the door, inside a loose quad.
+    door[:, 2] += rng.normal(0, 0.003, 600)
     side = np.column_stack(
         (np.full(400, 0.2), rng.uniform(-0.2, 0.2, 400), rng.uniform(0.6, 0.8, 400))
     )
@@ -192,7 +189,7 @@ def test_ransac_iterations(ratio, tries):
 
 
 def test_rays_hit_the_plane_where_expected():
-    normal, d = np.array([0.0, 0.0, -1.0]), -0.8  # z = 0.8
+    normal, d = np.array([0.0, 0.0, -1.0]), -0.8
     hit = intersect_plane(pixel_rays([(420.0, 240.0)], K), normal, d)
     assert hit[0] == pytest.approx([0.16, 0.0, 0.8])
 
@@ -203,7 +200,7 @@ def test_plane_behind_the_camera_raises():
 
 
 def wall_scene(z_door=0.8, z_bg=2.0):
-    """A door panel at z_door covering u 160..480, v 48..432; background behind."""
+    """A door panel at z_door (u 160..480, v 48..432), the background behind."""
     depth = np.full((H, W), int(z_bg * 1000), np.uint16)
     depth[48:432, 160:480] = int(z_door * 1000)
     corners = {
@@ -223,20 +220,18 @@ def wall_scene(z_door=0.8, z_bg=2.0):
 
 def test_locate_door_puts_corners_on_the_panel_despite_edge_depth():
     depth, keypoints = wall_scene()
-    depth[:, 158:163] = 0  # the edges read nothing, as at real depth edges
+    depth[:, 158:163] = 0
     door = locate_door(keypoints, depth, K)
     assert door.type == DoorType.REVOLUTE_LEFT
     assert door.handle == pytest.approx([0.192, 0.0, 0.8], abs=2e-3)
     assert door.corners["top_left"] == pytest.approx([-0.256, -0.3072, 0.8], abs=2e-3)
     assert door.corners["bottom_right"] == pytest.approx([0.256, 0.3072, 0.8], abs=2e-3)
     assert door.normal == pytest.approx([0, 0, -1], abs=1e-3)
-    assert not door.handle_from_depth  # a flat door: the handle is on the plane
+    assert not door.handle_from_depth
 
 
 def test_locate_door_measures_a_protruding_handle_in_depth():
     depth, keypoints = wall_scene()
-    # A 5 px wide vertical bar 4 cm in front of the door, narrower than the
-    # patch around the handle pixel (440, 240): the door around it is ignored.
     depth[200:280, 438:443] = 760
     door = locate_door(keypoints, depth, K)
     assert door.handle_from_depth
@@ -245,7 +240,7 @@ def test_locate_door_measures_a_protruding_handle_in_depth():
 
 def test_locate_door_falls_back_to_the_plane_without_handle_depth():
     depth, keypoints = wall_scene()
-    depth[230:251, 430:451] = 0  # no depth around the handle
+    depth[230:251, 430:451] = 0
     door = locate_door(keypoints, depth, K)
     assert not door.handle_from_depth
     assert door.handle == pytest.approx([0.192, 0.0, 0.8], abs=2e-3)
@@ -266,11 +261,11 @@ def test_door_transform():
         {n: np.zeros(3) for n in CORNERS},
         np.array([0, 0, 1.0]),
     )
-    rotation = np.array([[0, -1.0, 0], [1.0, 0, 0], [0, 0, 1.0]])  # 90 deg about z
+    rotation = np.array([[0, -1.0, 0], [1.0, 0, 0], [0, 0, 1.0]])
     moved = door.transform(rotation, [0, 0, 1.0])
     assert moved.handle == pytest.approx([0, 1.0, 1.0])
     assert moved.corners["top_left"] == pytest.approx([0, 0, 1.0])
-    assert moved.normal == pytest.approx([0, 0, 1.0])  # direction: not translated
+    assert moved.normal == pytest.approx([0, 0, 1.0])
     assert moved.type == DoorType.REVOLUTE_RIGHT
     assert not moved.handle_from_depth
     assert (
@@ -286,7 +281,7 @@ def test_encode_jpeg_shrinks_to_max_side():
     decoded = cv2.imdecode(np.frombuffer(encode_jpeg(image, 320), np.uint8), 1)
     assert decoded.shape == (240, 320, 3)
     decoded = cv2.imdecode(np.frombuffer(encode_jpeg(image, 1000), np.uint8), 1)
-    assert decoded.shape == (480, 640, 3)  # never enlarged
+    assert decoded.shape == (480, 640, 3)
 
 
 class FakeGemini:
@@ -294,7 +289,7 @@ class FakeGemini:
         self.text = text
         self.asked = []
 
-    def ask(self, image, mime_type, prompt, should_cancel):
+    def ask(self, image, mime_type, prompt, cancel):
         self.asked.append((image, mime_type, prompt))
         return self.text
 
@@ -303,7 +298,7 @@ def test_gemini_keypoints_are_in_the_requested_size():
     client = FakeGemini(answer())
     source = GeminiDoorKeypoints(client, max_side=320)
     image = np.zeros((480, 640, 3), np.uint8)
-    keypoints = source.keypoints(image, "the left door", (1280, 720), lambda: False)
+    keypoints = source.keypoints(image, "the left door", (1280, 720), CancelToken())
     assert keypoints.handle == pytest.approx((0.75 * 1280, 0.5 * 720))
     _, mime_type, prompt = client.asked[0]
     assert mime_type == "image/jpeg" and "the left door" in prompt

@@ -1,20 +1,18 @@
-"""Object perception on the robot: snapshot -> Detect (GPU PC) -> 3D points."""
-
-import time
 from dataclasses import dataclass
 
 import numpy as np
 
 from mm_interfaces.srv import Detect
 
-from ..errors import Canceled
+from ..cancel import CancelToken
+from ..errors import SkillError
 from ..scene import SceneError
 from .images import decode_mask_png, depth_to_array
 from .localize import mask_points, touches_edge, transform_points
 from .snapshot import SnapshotError, take_snapshot
 
 
-class PerceptionError(RuntimeError):
+class PerceptionError(SkillError):
     pass
 
 
@@ -22,8 +20,8 @@ class PerceptionError(RuntimeError):
 class Observation:
     label: str
     score: float
-    points: np.ndarray  # (N, 3) in the base frame
-    truncated: bool  # the mask reaches the image border: part may be out of view
+    points: np.ndarray  # (N, 3), base frame
+    truncated: bool  # the mask touches the image border
 
 
 class Locator:
@@ -55,12 +53,7 @@ class Locator:
             Detect, detect_service, callback_group=callback_group
         )
 
-    def locate(self, prompt: str, should_cancel) -> Observation:
-        """The best-scoring `prompt` in view, as points in the base frame.
-
-        Call it with the camera still. Raises PerceptionError (nothing found, no
-        camera data, no depth on the object, TF missing) or Canceled.
-        """
+    def locate(self, prompt: str, cancel: CancelToken) -> Observation:
         try:
             snap = take_snapshot(
                 self._node,
@@ -68,16 +61,14 @@ class Locator:
                 depth_compressed=self._depth_compressed,
                 slop=self._sync_slop,
                 timeout=self._snapshot_timeout,
-                should_cancel=should_cancel,
+                cancel=cancel,
                 callback_group=self._group,
             )
         except SnapshotError as e:
             raise PerceptionError(str(e)) from e
-        if snap is None:
-            raise Canceled()
         color, depth, info = snap
 
-        res = self._call(Detect.Request(prompt=prompt, image=color), should_cancel)
+        res = self._call(Detect.Request(prompt=prompt, image=color), cancel)
         if not res.success:
             raise PerceptionError(f"detect failed: {res.message}")
         if not res.detections:
@@ -104,15 +95,10 @@ class Locator:
             raise PerceptionError(f"{best.label}: {e}") from e
         return Observation(best.label, best.score, points, truncated)
 
-    def _call(self, request, should_cancel):
+    def _call(self, request, cancel: CancelToken):
         if not self._detect.wait_for_service(timeout_sec=self._service_timeout):
             raise PerceptionError(f"service {self._detect.srv_name} not available")
         future = self._detect.call_async(request)
-        deadline = time.monotonic() + self._service_timeout
-        while not future.done():
-            if should_cancel():
-                raise Canceled()
-            if time.monotonic() > deadline:
-                raise PerceptionError(f"service {self._detect.srv_name} timed out")
-            time.sleep(0.02)
+        if not cancel.wait_until(future.done, self._service_timeout):
+            raise PerceptionError(f"service {self._detect.srv_name} timed out")
         return future.result()

@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from mm_ik.solver import IKSolver
+from mm_manip.cancel import CancelToken
 from mm_manip.config import GraspConfig, ServerConfig
 from mm_manip.errors import Canceled
 from mm_manip.skills import grasp
@@ -29,7 +30,6 @@ def urdf():
 
 @pytest.fixture(scope="module")
 def reachable(urdf):
-    """An object center the arm alone reaches from START, in base_link."""
     return IKSolver(urdf).fk({**START, "arm_joint": 0.35}).translation.copy()
 
 
@@ -37,27 +37,27 @@ class FakeRobot:
     def __init__(self, urdf):
         self.urdf = urdf
         self.joints = dict(START)
-        self.base = np.zeros(3)  # x, y, yaw in the world
+        self.base = np.zeros(3)
         self.arm_moves = []
         self.base_moves = []
-        self.holding = True  # what close_gripper finds
-        self.gripper = []  # "open" / "close", in order
+        self.holding = True
+        self.gripper = []
 
-    def open_gripper(self, should_cancel):
+    def open_gripper(self, cancel):
         self.gripper.append("open")
 
-    def close_gripper(self, should_cancel):
+    def close_gripper(self, cancel):
         self.gripper.append("close")
         return self.holding
 
     def arm_joints(self):
         return dict(self.joints)
 
-    def move_arm(self, start, points, should_cancel):
+    def move_arm(self, start, points, cancel):
         self.arm_moves.append(points)
         self.joints.update(points[-1])
 
-    def move_base(self, x, y, theta, should_cancel, gains):
+    def move_base(self, x, y, theta, cancel, gains):
         self.base_moves.append((x, y, theta))
         c, s = np.cos(self.base[2]), np.sin(self.base[2])
         self.base += [c * x - s * y, s * x + c * y, theta]
@@ -72,10 +72,10 @@ class FakeLocator:
     def __init__(self, robot, world, errors=()):
         self.robot = robot
         self.world = world
-        self.errors = list(errors)  # added to the center on the first looks
+        self.errors = list(errors)
         self.looks = 0
 
-    def locate(self, prompt, should_cancel):
+    def locate(self, prompt, cancel):
         center = self.robot.to_base(self.world)
         if self.looks < len(self.errors):
             center = center + self.errors[self.looks]
@@ -116,10 +116,10 @@ def make_case(urdf, world, errors=(), cancel_after=None, **cfg):
     locator = FakeLocator(robot, world, errors)
     observer = FakeObserver()
 
-    def should_cancel():
-        return cancel_after is not None and len(observer.phases) >= cancel_after
-
-    ctx = Context(robot, locator, observer, FakeLog(), should_cancel)
+    cancel = CancelToken(
+        lambda: cancel_after is not None and len(observer.phases) >= cancel_after
+    )
+    ctx = Context(robot, locator, observer, FakeLog(), cancel)
     defaults = dict(dry_run=False, start_pose=START, base_dofs="x,y", settle_time=0.0)
     values = {**defaults, **cfg}
     shared_names = {f.name for f in fields(ServerConfig)}
@@ -133,7 +133,7 @@ def test_reachable_object_needs_no_base(urdf, reachable):
     center = grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert ctx.robot.base_moves == []
     assert ctx.locator.looks == 1
-    assert len(ctx.robot.arm_moves) == 3  # start pose, pre-grasp + approach, lift
+    assert len(ctx.robot.arm_moves) == 3
     assert np.allclose(center, reachable)
     assert ctx.observer.phases == [
         Phase.MOVING_TO_START,
@@ -152,9 +152,7 @@ def test_far_object_moves_the_base_once_and_looks_again(urdf, reachable):
 
 
 def test_wrong_first_look_gets_a_second_base_move(urdf, reachable):
-    """2026-11-02: a can far to the right, first seen 15 cm too far left (cut off at
-    the image edge). The first base move leaves it out of arm reach; the base must
-    move again instead of failing."""
+    # Real case 2026-11-02, see NOTE.md.
     cfg, shared, ctx = make_case(
         urdf, reachable + [0.0, -0.30, 0.0], errors=[[0, 0.15, 0.07]]
     )
@@ -205,11 +203,11 @@ def test_too_wide_object_is_rejected(urdf, reachable):
     cfg, shared, ctx = make_case(urdf, reachable, gripper_max_opening=0.05)
     with pytest.raises(grasp.GraspFailed, match="wider than the gripper"):
         grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
-    assert len(ctx.robot.arm_moves) == 1  # only the start pose
+    assert len(ctx.robot.arm_moves) == 1
 
 
 def test_object_width_along_closing_axis():
-    R = np.eye(3)  # closing axis = base y
+    R = np.eye(3)
     pts = np.column_stack(
         [np.linspace(0, 0.3, 200), np.linspace(-0.03, 0.03, 200), np.zeros(200)]
     )
@@ -228,7 +226,7 @@ def test_empty_gripper_fails_before_lifting(urdf, reachable):
     with pytest.raises(grasp.GraspFailed, match="nothing grasped"):
         grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
     assert ctx.observer.phases[-1] == Phase.GRASPING
-    assert len(ctx.robot.arm_moves) == 2  # start pose, approach; no lift
+    assert len(ctx.robot.arm_moves) == 2
 
 
 def test_without_gripper_nothing_is_commanded(urdf, reachable):

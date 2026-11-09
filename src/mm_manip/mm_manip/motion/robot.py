@@ -1,5 +1,3 @@
-"""Hardware interface to stretch_driver."""
-
 import math
 import threading
 import time
@@ -19,7 +17,8 @@ from std_msgs.msg import String
 from mm_ik.model import ARM_SEGMENTS
 from mm_ik.solver import ARM_JOINT_NAMES
 
-from ..errors import Canceled
+from ..cancel import POLL, CancelToken
+from ..errors import Canceled, SkillError
 from .base_control import (
     BaseGains,
     Pose2D,
@@ -44,30 +43,25 @@ from .velocity import (
     TrackingGains,
 )
 
-# Prismatic joints take a velocity on /joint_vel. stretch_driver turns a wrist
-# "velocity" v into move_by(v * duration) from the measured position, so for the
-# wrist follow_path sends, with duration 1 s, the remaining distance to the path.
+# /joint_vel: lift and arm get a velocity (m/s). The wrist joints get a
+# distance (rad), because the driver does move_by(value * duration).
 PRISMATIC = ("lift_joint", "arm_joint")
 
 
-class MotionError(RuntimeError):
+class MotionError(SkillError):
     pass
 
 
 @dataclass(frozen=True)
 class GripperSettings:
-    joint: str = "gripper_joint"  # FollowJointTrajectory command (servo rad)
-    state_joint: str = "gripper_finger_left_joint"  # /joint_states (finger rad)
-    # Driver units. Both are past the mechanical stops, so the gripper never gets
-    # within the driver's 0.5 of them and moves end when the fingers stop.
-    open: float = 80.0
-    closed: float = -10.0
-    # The finger reading (finger rad) when closed on nothing; closing ends farther
-    # than holding_margin from it when something is between the fingers.
-    closed_finger: float = 0.0
-    holding_margin: float = 0.05
-    still: float = 0.005  # finger rad: smaller changes count as not moving
-    stall_time: float = 0.3  # s still, short of closed, to count as holding something
+    joint: str = "gripper_joint"
+    state_joint: str = "gripper_finger_left_joint"
+    open: float = 80.0  # driver units, past the mechanical stop
+    closed: float = -10.0  # driver units, past the mechanical stop
+    closed_finger: float = 0.0  # rad, finger reading when closed on nothing
+    holding_margin: float = 0.05  # rad
+    still: float = 0.005  # rad
+    stall_time: float = 0.3  # s
     timeout: float = 5.0  # s
 
 
@@ -85,25 +79,11 @@ class Robot:
         gripper: "GripperSettings" = None,
         callback_group=None,
     ):
-        """
-        Args:
-            fjt_action: FollowJointTrajectory action name.
-            driver_joint_names: IK joint name (ARM_JOINT_NAMES) -> name the driver uses
-                in joint_states and FollowJointTrajectory.
-            max_step: largest change per joint in one trajectory point, used when the
-                driver's action_timeout is shorter than no_split_action_timeout.
-            fjt_mode: driver mode for move_arm ("navigation" or "position"; both
-                take FollowJointTrajectory, only navigation also takes /cmd_vel).
-            control_rate: follow_path command rate (Hz).
-            path_settle_timeout: time follow_path allows after the path ends to get
-                within tolerance.
-            gripper: its joint names, open and closed commands, stall detection.
-        """
         self._node = node
         self._driver_names = driver_joint_names
         self._max_step = max_step
         self._no_split_action_timeout = no_split_action_timeout
-        self._split = None  # last answer of _needs_split, to log only changes
+        self._split = None
         self._fjt_mode = fjt_mode
         self._period = 1.0 / control_rate
         self._path_settle_timeout = path_settle_timeout
@@ -111,7 +91,7 @@ class Robot:
         self._lock = threading.Lock()
         self._joint_state = {}
         self._joint_state_time = None
-        self._mode = None  # latest /mode from the driver
+        self._mode = None
         self._urdf = None
         self._active_goal = None
 
@@ -147,18 +127,15 @@ class Robot:
             String, "/mode", self._on_mode, latched, callback_group=callback_group
         )
         self._joint_vel = node.create_publisher(JointJog, "/joint_vel", 1)
-        self._arm_moving = False  # follow_path is commanding /joint_vel
+        self._arm_moving = False
 
-        # Base: stretch_driver takes /cmd_vel (vx, vy, w) in navigation and velocity
-        # modes and has no cmd_vel timeout, so every base motion ends by publishing zero.
-        self._odom = None  # (Pose2D, receive time)
+        self._odom = None
         node.create_subscription(
             Odometry, "/wheel_odom", self._on_odom, 10, callback_group=callback_group
         )
+        # stretch_driver has no /cmd_vel timeout. Always send zero to stop the base.
         self._cmd_vel = node.create_publisher(Twist, "/cmd_vel", 1)
         self._base_moving = False
-
-    # --- state ------------------------------------------------------------
 
     def _on_joint_states(self, msg):
         with self._lock:
@@ -182,12 +159,6 @@ class Robot:
         return self._urdf
 
     def arm_joints(self, max_age: float = None) -> dict:
-        """Current arm joints keyed by IK names.
-
-        The arm is read from its driver name if published, otherwise summed from
-        the URDF segments arm_l1..arm_l4 (stretch_driver publishes the segments,
-        each at a quarter of the total). With max_age, older joint states raise.
-        """
         with self._lock:
             state = dict(self._joint_state)
             stamp = self._joint_state_time
@@ -200,47 +171,34 @@ class Robot:
             driver = self._driver_names[name]
             if driver in state:
                 joints[name] = state[driver]
+            # stretch_driver publishes arm_l1..arm_l4, each 1/4 of arm_joint.
             elif name == "arm_joint" and all(s in state for s in ARM_SEGMENTS):
                 joints[name] = sum(state[s] for s in ARM_SEGMENTS)
             else:
                 raise MotionError(f"{driver} not in /joint_states")
         return joints
 
-    # --- arm --------------------------------------------------------------
-
-    def move_arm(self, start: dict, points: list, should_cancel):
-        """Move from `start` through `points` (IK-name joint dicts) and wait.
-
-        stretch_driver runs a trajectory point by point anyway (no interpolation,
-        time_from_start ignored), so each point goes out as its own goal with only the
-        joints that move (see trajectory.moving_joints). The driver aborts a point after its
-        action_timeout, so long moves are cut into max_step pieces when it is short.
-        Raises Canceled if should_cancel() turns true (the goal is canceled first),
-        MotionError if the controller rejects or fails it.
-        """
-        self._ensure_mode(self._fjt_mode, should_cancel)
+    def move_arm(self, start: dict, points: list, cancel: CancelToken):
+        self._ensure_mode(self._fjt_mode, cancel)
         if not self._fjt.wait_for_server(timeout_sec=2.0):
             raise MotionError("FollowJointTrajectory server not available")
-        if self._needs_split(should_cancel):
+        if self._needs_split(cancel):
             points = split_long_moves(start, points, self._max_step)
+        # stretch_driver stops at each point and ignores time_from_start.
+        # A lift or arm target at the current position never completes.
+        # Thus, send only the joints that move.
         for point in moving_joints(start, points, MIN_JOINT_CHANGE):
-            self._move_to(point, should_cancel)
+            self._move_to(point, cancel)
 
-    def _needs_split(self, should_cancel, timeout=2.0) -> bool:
-        """Whether stretch_driver's action_timeout (3 s by default) is too short for
-        long moves. Asked on every move, since `ros2 param set /stretch_driver
-        action_timeout 15.0` changes it at run time. Unknown counts as too short."""
+    def _needs_split(self, cancel: CancelToken, timeout=2.0) -> bool:
+        # stretch_driver aborts a point after action_timeout (default 3 s).
+        # Read it on each move, because it can change at run time.
         action_timeout = None
         if self._driver_params.wait_for_service(timeout_sec=timeout):
             future = self._driver_params.call_async(
                 GetParameters.Request(names=["action_timeout"])
             )
-            deadline = time.monotonic() + timeout
-            while not future.done() and time.monotonic() < deadline:
-                if should_cancel():
-                    raise Canceled()
-                time.sleep(0.02)
-            if future.done() and future.result().values:
+            if cancel.wait_until(future.done, timeout) and future.result().values:
                 action_timeout = future.result().values[0].double_value
         split = action_timeout is None or action_timeout < self._no_split_action_timeout
         if split != self._split:
@@ -251,22 +209,24 @@ class Robot:
             )
         return split
 
-    def _move_to(self, point: dict, should_cancel):
+    def _move_to(self, point: dict, cancel: CancelToken):
         names = list(point)
         traj = joint_trajectory(
             [self._driver_names[n] for n in names],
             [{self._driver_names[n]: point[n] for n in names}],
             [1.0],
         )
-        goal_handle = self._wait(
+        goal_handle = cancel.result(
             self._fjt.send_goal_async(FollowJointTrajectory.Goal(trajectory=traj)),
-            should_cancel,
+            on_cancel=self.stop,
         )
         if not goal_handle.accepted:
             raise MotionError("trajectory rejected")
         self._active_goal = goal_handle
         try:
-            result = self._wait(goal_handle.get_result_async(), should_cancel).result
+            result = cancel.result(
+                goal_handle.get_result_async(), on_cancel=self.stop
+            ).result
         finally:
             self._active_goal = None
         if result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
@@ -274,32 +234,13 @@ class Robot:
                 f"trajectory failed ({result.error_code}): {result.error_string}"
             )
 
-    def _wait(self, future, should_cancel):
-        while not future.done():
-            if should_cancel():
-                self.stop()
-                raise Canceled()
-            time.sleep(0.02)
-        return future.result()
-
-    def follow_path(self, points: list, should_cancel, gains: TrackingGains = None):
-        """Move through `points` without stopping at them, and wait.
-
-        points: dicts keyed by IK joint names, and optionally BASE_X, BASE_Y and
-        BASE_THETA: the base's travel (m) from where it is when the path starts,
-        along its x and y axes there, and its turn (rad) since then. A path with
-        base joints controls all three (the missing ones are held at 0). gains: path timing, tracking gain and arrival tolerances
-        (per call, so a skill can read them from its parameters on every goal).
-        The path starts from the measured joints and ends once
-        every joint is within tolerance of the last point; everything is always
-        commanded to zero at the end.
-        Raises Canceled if should_cancel() turns true, MotionError if the driver
-        does not switch to velocity mode, joint states or odometry stop, or the
-        robot does not arrive.
-        """
+    def follow_path(
+        self, points: list, cancel: CancelToken, gains: TrackingGains = None
+    ):
+        """Base joints in `points`: travel from the start, in the start base frame."""
         if not points:
             raise ValueError("no waypoints")
-        self._ensure_mode("velocity", should_cancel)
+        self._ensure_mode("velocity", cancel)
         with_base = any(j in points[-1] for j in BASE_JOINTS)
         if with_base:
             points = [{**dict.fromkeys(BASE_JOINTS, 0.0), **p} for p in points]
@@ -322,8 +263,7 @@ class Robot:
         self._base_moving = with_base
         try:
             while True:
-                if should_cancel():
-                    raise Canceled()
+                cancel.check()
                 t = time.monotonic() - t0
                 current = measured()
                 velocity, error, done = tracker.command(t, current)
@@ -340,8 +280,7 @@ class Robot:
                     }
                 )
                 if with_base:
-                    # The path's (x, y) is in the starting base frame, /cmd_vel in
-                    # the current one, turned by base_theta since the start.
+                    # The path is in the start base frame, /cmd_vel in the current one.
                     turn = current[BASE_THETA]
                     vx, vy = velocity[BASE_X], velocity[BASE_Y]
                     self._publish_twist(
@@ -361,11 +300,10 @@ class Robot:
         msg = JointJog()
         msg.joint_names = [self._driver_names[j] for j in commands]
         msg.velocities = [float(v) for v in commands.values()]
-        msg.duration = 1.0  # wrist: move_by(velocity * duration), see PRISMATIC
+        msg.duration = 1.0
         self._joint_vel.publish(msg)
 
-    def _ensure_mode(self, mode: str, should_cancel, timeout: float = 2.0):
-        """Switch stretch_driver to `mode` (its `mode` parameter) unless it is in it."""
+    def _ensure_mode(self, mode: str, cancel: CancelToken, timeout: float = 2.0):
         if self._mode == mode:
             return
         self._node.get_logger().info(
@@ -377,17 +315,11 @@ class Robot:
         future = self._driver_set_params.call_async(
             SetParameters.Request(parameters=[Parameter(name="mode", value=value)])
         )
-        deadline = time.monotonic() + timeout
-        while self._mode != mode:
-            if should_cancel():
-                raise Canceled()
-            if time.monotonic() > deadline:
-                result = future.result() if future.done() else None
-                raise MotionError(f"stretch_driver did not switch to {mode} ({result})")
-            time.sleep(0.02)
+        if not cancel.wait_until(lambda: self._mode == mode, timeout):
+            result = future.result() if future.done() else None
+            raise MotionError(f"stretch_driver did not switch to {mode} ({result})")
 
     def stop(self):
-        """Stop all motion now."""
         goal = self._active_goal
         if goal is not None:
             goal.cancel_goal_async()
@@ -396,23 +328,16 @@ class Robot:
         if self._base_moving:
             self._publish_twist(0.0, 0.0, 0.0)
 
-    # --- base -------------------------------------------------------------
-
     def move_base(
         self,
         base_x: float,
         base_y: float,
         base_theta: float,
-        should_cancel,
+        cancel: CancelToken,
         gains: BaseGains = None,
         rate_hz: float = 20.0,
     ):
-        """Move the base by (x, y, theta) in the starting base_link and wait.
-
-        Translates by (x, y), then turns in place by theta, closed loop on /wheel_odom
-        (the IK's base chain is x, y, then theta). Always ends by publishing zero.
-        Raises Canceled or MotionError (no odometry, odometry stalled, or timeout).
-        """
+        """Translate by (x, y), then turn by theta: the order of the IK base joints."""
         gains = gains or BaseGains()
         start = self._odom_pose(max_age=0.5)
         distance = (base_x**2 + base_y**2) ** 0.5
@@ -427,8 +352,7 @@ class Robot:
                 lambda p: rotate_command(start, p, base_theta, gains),
             ):
                 while True:
-                    if should_cancel():
-                        raise Canceled()
+                    cancel.check()
                     if time.monotonic() > deadline:
                         raise MotionError(
                             f"base motion timed out after {timeout:.0f} s"
@@ -458,25 +382,19 @@ class Robot:
         msg.linear.x, msg.linear.y, msg.angular.z = float(vx), float(vy), float(w)
         self._cmd_vel.publish(msg)
 
-    # --- gripper ----------------------------------------------------------
-    # Through FollowJointTrajectory. The driver counts the gripper as there only
-    # within 0.5 of its target, which it never is against its mechanical stops or
-    # on an object: such a goal only ends at the driver's action_timeout. So both
-    # wait for the fingers to stop moving instead.
-
     def set_gripper(self, gripper: "GripperSettings"):
-        """Use these gripper settings from the next gripper move on."""
         self._gripper = gripper
 
-    def open_gripper(self, should_cancel):
-        """Open the gripper; returns once it is open (at the target or the stop)."""
-        self._run_gripper(self._gripper.open, should_cancel)
+    # stretch_driver ends a gripper goal only within 0.5 of the target. At a
+    # mechanical stop or on an object it never gets there, so wait until the
+    # fingers stop.
 
-    def close_gripper(self, should_cancel) -> bool:
-        """Close the gripper; True if it stopped on something, False if it closed
-        all the way (nothing in it). The command is left running, so the gripper
-        keeps squeezing."""
-        self._run_gripper(self._gripper.closed, should_cancel)
+    def open_gripper(self, cancel: CancelToken):
+        self._run_gripper(self._gripper.open, cancel)
+
+    def close_gripper(self, cancel: CancelToken) -> bool:
+        """True if it holds something. The command stays on to keep the grip."""
+        self._run_gripper(self._gripper.closed, cancel)
         finger = self._finger()
         holding = (
             abs(finger - self._gripper.closed_finger) > self._gripper.holding_margin
@@ -487,16 +405,14 @@ class Robot:
         )
         return holding
 
-    def _run_gripper(self, target: float, should_cancel) -> bool:
-        """Command the gripper to `target`; True once the driver reports it there,
-        False once the fingers stop short of it (still for stall_time)."""
+    def _run_gripper(self, target: float, cancel: CancelToken) -> bool:
         g = self._gripper
-        goal = self._send_gripper(target, should_cancel)
+        goal = self._send_gripper(target, cancel)
         result = goal.get_result_async()
         start = time.monotonic()
         last, still_since, moved = self._finger(), start, False
         while True:
-            if should_cancel():
+            if cancel.canceled:
                 goal.cancel_goal_async()
                 raise Canceled()
             if result.done():
@@ -512,27 +428,26 @@ class Robot:
             if abs(position - last) > g.still:
                 last, still_since, moved = position, now, True
             elif now - still_since >= g.stall_time and (moved or now - start > 1.0):
-                return False  # stopped short (or never had to move)
+                return False
             if now - start > g.timeout:
                 raise MotionError(f"gripper did not reach {target} in {g.timeout} s")
-            time.sleep(0.02)
+            time.sleep(POLL)
 
-    def _send_gripper(self, target: float, should_cancel):
-        self._ensure_mode(self._fjt_mode, should_cancel)
+    def _send_gripper(self, target: float, cancel: CancelToken):
+        self._ensure_mode(self._fjt_mode, cancel)
         if not self._fjt.wait_for_server(timeout_sec=2.0):
             raise MotionError("FollowJointTrajectory server not available")
         name = self._gripper.joint
         traj = joint_trajectory([name], [{name: target}], [1.0])
-        goal = self._wait(
+        goal = cancel.result(
             self._fjt.send_goal_async(FollowJointTrajectory.Goal(trajectory=traj)),
-            should_cancel,
+            on_cancel=self.stop,
         )
         if not goal.accepted:
             raise MotionError("gripper goal rejected")
         return goal
 
     def _finger(self) -> float:
-        """The gripper's finger position (finger rad) from /joint_states."""
         with self._lock:
             position = self._joint_state.get(self._gripper.state_joint)
         if position is None:

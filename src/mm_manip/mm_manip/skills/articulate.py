@@ -1,16 +1,3 @@
-"""Articulate skill: open a hinged door by its handle, along a quarter circle.
-
-All motions are velocity paths (robot.follow_path). The arc keeps the handle at
-its height and turns the gripper with the door; the base (x, y, theta) moves with
-the arm where the arm alone cannot follow the arc.
-
-The wrist yaw cannot turn the gripper a quarter turn either way (about -65..245
-deg), so the base has to turn too, and which way pays off depends on the door.
-The IK solves the arc point by point and cannot undo an early bad choice, so the
-arc is planned with a few base-turn strategies and the best plan is kept: the one
-opening furthest, then moving the base least. It may stop short of the angle asked.
-"""
-
 from dataclasses import dataclass, field, replace
 from enum import IntEnum
 
@@ -19,6 +6,7 @@ import pinocchio as pin
 
 from mm_ik.solver import ARM_JOINT_NAMES, IKSolver
 
+from ..errors import SkillError
 from ..motion.planning import PlanningError, reach, solve_waypoints
 from ..motion.velocity import BASE_JOINTS, BASE_THETA, BASE_X, BASE_Y, TrackingGains
 from ..perception.door import Door, DoorType, HandleType
@@ -27,21 +15,15 @@ from .primitives import OutOfReach
 DEFAULT_OPEN_ANGLE = np.pi / 2
 Z = np.array([0.0, 0.0, 1.0])
 
-# Base posture costs on the arc (the arm's are 1e-3). Translation is kept small;
-# the turn is either cheap and left to the IK, or held to a prescribed share of
-# the door's turn (ArticulateConfig.base_turn_ratios).
+# Posture costs. The arm joints have 1e-3.
 BASE_TRANSLATION_COST = 0.1
 FREE_TURN_COST = 1e-3
 PRESCRIBED_TURN_COST = 1.0
-# Reaching the handle (as grasp's base stage): the base translates cheaply and
-# does not turn, and the arm is held near approach_arm.
 APPROACH_ARM_POSTURE_COST = 1e-2
 APPROACH_TRANSLATION_COST = 1e-4
 
-# Wrist roll per handle type. The gripper closes along grasp_center_link y, which
-# is horizontal at roll 0: right for a vertical bar, and any way works for a knob.
-# A horizontal bar needs it vertical; the roll joint's range is about -4.3..1.1
-# rad, so -pi/2 (the gripper is symmetric).
+# The gripper closes along the y axis of grasp_center_link. A horizontal bar
+# needs it vertical: -pi/2 (the roll range is about -4.3..1.1 rad).
 HANDLE_ROLL = {
     HandleType.BAR_VERTICAL: 0.0,
     HandleType.KNOB: 0.0,
@@ -49,13 +31,12 @@ HANDLE_ROLL = {
 }
 
 
-class ArticulateFailed(RuntimeError):
+class ArticulateFailed(SkillError):
     pass
 
 
 class Phase(IntEnum):
-    """Same values as the phases in mm_interfaces/action/Articulate feedback."""
-
+    # Values match the feedback phases in Articulate.action.
     MOVING_TO_START = 0
     DETECTING = 1
     APPROACHING = 2
@@ -65,20 +46,19 @@ class Phase(IntEnum):
 
 @dataclass(frozen=True)
 class ArticulateGoal:
-    prompt: str = ""  # find this door with the camera, or
-    handle: np.ndarray | None = None  # (base frame) open at this handle center
-    hinge: np.ndarray | None = None  # around the vertical axis through this point
+    prompt: str = ""
+    handle: np.ndarray | None = None  # base frame
+    hinge: np.ndarray | None = None  # base frame, on the vertical hinge axis
     open_angle: float = 0.0  # rad, 0 = DEFAULT_OPEN_ANGLE
 
 
 @dataclass(frozen=True)
 class ArcPlan:
-    grasp: dict  # arm joints with the gripper on the handle, and the base motion
-    # (base_x/base_y/base_theta) getting there; {} of it when the arm alone reaches
-    path: list  # arm + base joints along the arc, from where the grasp leaves the base
-    opened: float  # rad the path opens the door (may be short of the arc's)
-    strategy: str  # which base-turn strategy won, for the log
-    base_travel: float = field(default=0.0)  # m, the most the base strays
+    grasp: dict  # arm joints and the base motion to the grasp
+    path: list  # base joints are relative to the base at the grasp
+    opened: float  # rad
+    strategy: str
+    base_travel: float = field(default=0.0)
 
 
 @dataclass(frozen=True)
@@ -90,26 +70,13 @@ class Outcome:
 
 @dataclass(frozen=True)
 class Arc:
-    """The opening motion, in base_link when the gripper is on the handle."""
-
-    axis: np.ndarray  # (3,) on the vertical hinge axis, at the handle's height
-    poses: list  # pin.SE3 grasp_center_link targets; poses[0] grasps the handle
-    angles: np.ndarray  # door turn (rad, >= 0) at each pose
-    sign: float  # +1: the door turns counterclockwise seen from above
+    axis: np.ndarray
+    poses: list  # poses[0] grasps the handle
+    angles: np.ndarray  # rad
+    sign: float  # +1: the door turns counterclockwise, seen from above
 
 
 def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
-    """Open the door once (as far as a plan reaches); the door is in the base frame
-    at the start.
-
-    cfg is the ArticulateConfig and shared the ServerConfig of this goal.
-    ctx.locator.locate(prompt, should_cancel) -> Door (MODE_PROMPT only).
-    ctx.observer gets phase(Phase), door(door), arc(arc) and, in dry_run,
-    ghost(arm waypoints) instead of any motion.
-    Raises NotImplementedError (a drawer, an unknown door, a recessed or unknown
-    handle), ArticulateFailed, OutOfReach, PlanningError, Canceled,
-    and the robot's and the locator's errors.
-    """
     if ctx.robot.urdf is None:
         raise ArticulateFailed("no /robot_description received yet")
     gains = TrackingGains(
@@ -123,15 +90,15 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     if shared.dry_run:
         current = cfg.start_pose
     else:
-        ctx.robot.follow_path([cfg.start_pose], ctx.should_cancel, gains)
-        ctx.sleep(shared.settle_time)
+        ctx.robot.follow_path([cfg.start_pose], ctx.cancel, gains)
+        ctx.cancel.sleep(shared.settle_time)
         current = ctx.robot.arm_joints()
 
     ctx.phase(Phase.DETECTING)
     if goal.handle is not None:
         door = door_from_points(goal.handle, goal.hinge)
     else:
-        door = ctx.locator.locate(goal.prompt, ctx.should_cancel)
+        door = ctx.locator.locate(goal.prompt, ctx.cancel)
         if door.handle_from_depth:
             door, protrusion, moved = into_handle(door, cfg.handle_grasp_depth)
             ctx.log.info(
@@ -144,8 +111,7 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
                 f"+ handle_offset {cfg.handle_offset} m"
             )
             door = with_handle_offset(door, cfg.handle_offset)
-        # HACK: grasps land left of and above the handle; shift 1.5 cm right (-y)
-        # and 3.5 cm down (-z) in base_link.
+        # HACK: the grasps land left of and above the handle.
         door = replace(door, handle=door.handle + [0.0, -0.015, -0.05])
     ctx.observer.door(door)
     if door.type not in (DoorType.REVOLUTE_LEFT, DoorType.REVOLUTE_RIGHT):
@@ -174,29 +140,26 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
 
     ctx.phase(Phase.APPROACHING)
     if shared.use_gripper:
-        ctx.robot.open_gripper(ctx.should_cancel)
+        ctx.robot.open_gripper(ctx.cancel)
     else:
         ctx.log.warn("use_gripper is false: not opening the gripper")
-    ctx.robot.follow_path([plan.grasp], ctx.should_cancel, gains)
+    ctx.robot.follow_path([plan.grasp], ctx.cancel, gains)
     _log_grasp_error(ctx, door, arc, plan, shared)
 
     ctx.phase(Phase.GRASPING)
     if shared.use_gripper:
-        if not ctx.robot.close_gripper(ctx.should_cancel):
+        if not ctx.robot.close_gripper(ctx.cancel):
             raise ArticulateFailed("gripper closed all the way: missed the handle")
     else:
         ctx.log.warn("use_gripper is false: not closing the gripper")
 
     ctx.phase(Phase.OPENING)
-    ctx.robot.follow_path(plan.path, ctx.should_cancel, gains)
+    ctx.robot.follow_path(plan.path, ctx.cancel, gains)
     return outcome
 
 
 def _log_grasp_error(ctx, door, arc, plan, shared):
-    """Log where the gripper is against the handle, planned and measured (FK of
-    the joint states, with the planned base motion: odometry is accurate), in the
-    base frame at the start, split along the door (+ toward the hinge), out of
-    it (+ toward the robot) and up. Debugging only."""
+    """Debug only. Log the gripper error at the grasp: along the door, out, up."""
     try:
         fk = IKSolver(
             ctx.robot.urdf,
@@ -230,16 +193,10 @@ def _log_grasp_error(ctx, door, arc, plan, shared):
 
 
 def door_from_points(handle, hinge) -> Door:
-    """A Door from a handle point and a point on the hinge axis (base frame).
-
-    The door's normal is horizontal, perpendicular to the handle-hinge line, and
-    faces the robot; the hinge's side (+y is the robot's left) gives the type.
-    No corners; the handle is assumed a vertical bar.
-    """
     handle, hinge = np.asarray(handle, float), np.asarray(hinge, float)
     along = _horizontal(hinge - handle)
     normal = np.cross(Z, along)
-    if normal @ -_horizontal(handle) < 0:  # face the robot at the origin
+    if normal @ -_horizontal(handle) < 0:
         normal = -normal
     door_type = (
         DoorType.REVOLUTE_LEFT if hinge[1] > handle[1] else DoorType.REVOLUTE_RIGHT
@@ -250,10 +207,7 @@ def door_from_points(handle, hinge) -> Door:
 
 
 def into_handle(door: Door, depth: float, clearance: float = 0.005):
-    """(door, protrusion, moved): a depth-measured handle (its front surface)
-    moved `depth` into the door, toward the bar's middle, stopping `clearance`
-    short of the door plane. protrusion: how far the front surface stands out
-    of the plane; moved: how far it was moved (both m)."""
+    """Move the handle `depth` into the door. Returns (door, protrusion, moved) in m."""
     out = _horizontal(door.normal)
     protrusion = float((door.handle - door.corners["top_left"]) @ door.normal)
     moved = min(depth, max(protrusion - clearance, 0.0))
@@ -261,17 +215,10 @@ def into_handle(door: Door, depth: float, clearance: float = 0.005):
 
 
 def with_handle_offset(door: Door, offset: float) -> Door:
-    """The door with its handle moved `offset` out of the door plane (horizontally)."""
     return replace(door, handle=door.handle + offset * _horizontal(door.normal))
 
 
 def hinge_axis(door: Door) -> np.ndarray:
-    """The point of the (vertical) hinge axis at the handle's height.
-
-    From the corners: the foot of the perpendicular from the handle to the edge
-    through the two corners on the hinge side, then made vertical (so the handle
-    keeps its height while the door turns). door_from_points stores it directly.
-    """
     if "hinge" in door.corners:
         point = door.corners["hinge"]
     else:
@@ -291,18 +238,13 @@ def radius(door: Door, arc: Arc) -> float:
 
 
 def opening_arc(door: Door, angle: float, n_waypoints: int, roll: float = 0.0) -> Arc:
-    """The handle turning `angle` about the hinge axis, toward the robot.
-
-    The gripper points into the door (along -normal, level) with `roll` about its
-    pointing axis, and turns with the door. n_waypoints poses, both ends included.
-    """
     if n_waypoints < 2:
         raise ValueError("n_waypoints must be >= 2")
     axis = hinge_axis(door)
     arm = door.handle - axis
     if np.linalg.norm(arm[:2]) < 0.02:
         raise ArticulateFailed("the handle is on the hinge axis")
-    # Turn the way that first moves the handle out of the door, toward the robot.
+    # Turn so that the handle first moves toward the robot.
     sign = 1.0 if np.cross(Z, arm) @ door.normal > 0 else -1.0
     pointing = -_horizontal(door.normal)
     start = _rot_z(np.arctan2(pointing[1], pointing[0])) @ _rot_x(roll)
@@ -315,15 +257,6 @@ def opening_arc(door: Door, angle: float, n_waypoints: int, roll: float = 0.0) -
 
 
 def plan_arc(arc: Arc, current: dict, cfg, shared, urdf) -> ArcPlan:
-    """The best plan for the arc, see the module docstring.
-
-    The handle is reached with the arm alone if it can, else with the base moving
-    too, the arm then near approach_arm to leave room for the arc (OutOfReach if
-    neither does). The base motion trusts odometry: the door is not looked at
-    again. The arc is solved from the grasp with the base free; base_x/base_y/
-    base_theta in the path are its motion from where it is at the grasp.
-    Raises PlanningError if no strategy gets past the grasp.
-    """
     accept = {
         "accept_position_error": cfg.ik_accept_position_error,
         "accept_orientation_error": np.deg2rad(cfg.ik_accept_orientation_error_deg),
@@ -375,12 +308,12 @@ def plan_arc(arc: Arc, current: dict, cfg, shared, urdf) -> ArcPlan:
         )
     except PlanningError as e:
         raise OutOfReach(f"handle out of reach: {e}") from e
-    # The arc as seen from the base after it moved to the grasp.
     moved = approach.base_motion({**grasp, **base})
     start = {**grasp, **dict.fromkeys(BASE_JOINTS, 0.0)}
     targets = [moved.actInv(pose) for pose in arc.poses[1:]]
     angles = arc.angles[1:]
 
+    # Keep the plan that opens most, then moves the base least.
     candidates = [("base turn free", free, None)] + [
         (
             f"base turn {ratio:g} x door",

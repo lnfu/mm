@@ -1,14 +1,7 @@
-"""Gemini API client: one image + one prompt -> the answer text. No ROS.
-
-The API key comes from the GEMINI_API_KEY environment variable (read by
-google-genai), never from parameters, so it stays out of logs and config files.
-"""
-
 import os
 import threading
-import time
 
-from ..errors import Canceled
+from ..cancel import CancelToken
 
 
 class GeminiError(RuntimeError):
@@ -17,17 +10,11 @@ class GeminiError(RuntimeError):
 
 class GeminiClient:
     def __init__(self, model: str, thinking_level: str = "low", timeout: float = 20.0):
-        """
-        Args:
-            model: e.g. "gemini-robotics-er-2-preview".
-            thinking_level: "minimal" | "low" | "medium" | "high"; more is slower.
-            timeout: s for one request.
-        Raises GeminiError if GEMINI_API_KEY is not set or google-genai is missing.
-        """
+        # The key comes only from the environment, so it stays out of logs.
         if not os.environ.get("GEMINI_API_KEY"):
             raise GeminiError("GEMINI_API_KEY not set")
         try:
-            from google import genai  # slow import, and only needed here
+            from google import genai
             from google.genai import types
         except ImportError as e:
             raise GeminiError("google-genai is not installed") from e
@@ -39,12 +26,9 @@ class GeminiClient:
         self._thinking_level = thinking_level
         self._timeout = timeout
 
-    def ask(self, image: bytes, mime_type: str, prompt: str, should_cancel) -> str:
-        """Gemini's text answer about the image. Raises GeminiError or Canceled.
-
-        The request runs in a thread so a cancel does not wait for it (its answer
-        is then dropped).
-        """
+    def ask(
+        self, image: bytes, mime_type: str, prompt: str, cancel: CancelToken
+    ) -> str:
         types = self._types
         done = threading.Event()
         outcome = {}
@@ -69,13 +53,10 @@ class GeminiClient:
             finally:
                 done.set()
 
+        # A thread, so that a cancel does not wait for the answer.
         threading.Thread(target=request, daemon=True).start()
-        deadline = time.monotonic() + self._timeout + 1.0
-        while not done.wait(0.02):
-            if should_cancel():
-                raise Canceled()
-            if time.monotonic() > deadline:
-                raise GeminiError(f"no answer within {self._timeout} s")
+        if not cancel.wait_until(done.is_set, self._timeout + 1.0):
+            raise GeminiError(f"no answer within {self._timeout} s")
         if "error" in outcome:
             raise GeminiError(f"{self._model}: {outcome['error']}") from outcome[
                 "error"

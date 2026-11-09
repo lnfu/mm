@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from mm_ik.solver import IKSolver
+from mm_manip.cancel import CancelToken
 from mm_manip.config import ArticulateConfig, ServerConfig
 from mm_manip.perception.door import Door, DoorType, HandleType
 from mm_manip.skills import articulate
@@ -20,7 +21,7 @@ from mm_manip.skills.primitives import Context
 
 stretch4_urdf = pytest.importorskip("stretch4_urdf")
 
-# A door 0.8 m ahead, facing the robot (+y is the robot's left), 0.4 m wide.
+# A door 0.8 m ahead, 0.4 m wide, facing the robot.
 NORMAL = np.array([-1.0, 0.0, 0.0])
 CORNERS = {
     "top_left": np.array([0.8, 0.2, 1.0]),
@@ -42,9 +43,6 @@ def door(door_type=DoorType.REVOLUTE_LEFT, handle=(0.8, -0.15, 0.7), **kw):
     return Door(**values)
 
 
-# --- geometry -----------------------------------------------------------------
-
-
 def test_hinge_axis_is_on_the_hinge_side_at_handle_height():
     assert hinge_axis(door()) == pytest.approx([0.8, 0.2, 0.7])
     right = door(DoorType.REVOLUTE_RIGHT, handle=(0.8, 0.15, 0.7))
@@ -54,8 +52,8 @@ def test_hinge_axis_is_on_the_hinge_side_at_handle_height():
 def test_hinge_axis_from_a_slanted_edge_stays_vertical():
     corners = {**CORNERS, "top_left": np.array([0.82, 0.22, 1.0])}
     axis = hinge_axis(door(corners=corners))
-    assert axis[2] == pytest.approx(0.7)  # the handle's height
-    assert axis[:2] == pytest.approx([0.81, 0.21], abs=2e-3)  # foot at mid-height
+    assert axis[2] == pytest.approx(0.7)
+    assert axis[:2] == pytest.approx([0.81, 0.21], abs=2e-3)
 
 
 @pytest.mark.parametrize(
@@ -69,19 +67,18 @@ def test_arc_swings_the_handle_toward_the_robot(door_type, handle, end):
     arc = opening_arc(door(door_type, handle), np.pi / 2, 10)
     points = np.array([p.translation for p in arc.poses])
     assert points[0] == pytest.approx(handle)
-    assert points[:, 2] == pytest.approx(np.full(10, 0.7))  # height kept
+    assert points[:, 2] == pytest.approx(np.full(10, 0.7))
     radii = np.linalg.norm(points[:, :2] - arc.axis[:2], axis=1)
     assert radii == pytest.approx(np.full(10, 0.35))
-    assert points[1, 0] < points[0, 0]  # first move: toward the robot
+    assert points[1, 0] < points[0, 0]
     assert points[-1, :2] == pytest.approx(end)
     assert arc.angles[-1] == pytest.approx(np.pi / 2)
 
 
 def test_gripper_points_into_the_door_and_turns_with_it():
     arc = opening_arc(door(), np.pi / 2, 3)
-    assert arc.poses[0].rotation[:, 0] == pytest.approx([1, 0, 0])  # -normal
-    assert arc.poses[0].rotation[:, 1] == pytest.approx([0, 1, 0])  # closes level
-    # Left hinge: the door turns clockwise seen from above, and the gripper with it.
+    assert arc.poses[0].rotation[:, 0] == pytest.approx([1, 0, 0])
+    assert arc.poses[0].rotation[:, 1] == pytest.approx([0, 1, 0])
     assert arc.sign == -1
     assert arc.poses[-1].rotation[:, 0] == pytest.approx([0, -1, 0])
 
@@ -108,7 +105,6 @@ def test_handle_offset_moves_the_handle_out_of_the_door():
 
 
 def test_into_handle_moves_the_front_surface_into_the_door():
-    # Front surface 3 cm out of the door (x 0.8): 1.5 cm deeper.
     moved, protrusion, depth = into_handle(door(handle=(0.77, -0.15, 0.7)), 0.015)
     assert protrusion == pytest.approx(0.03)
     assert depth == pytest.approx(0.015)
@@ -116,13 +112,10 @@ def test_into_handle_moves_the_front_surface_into_the_door():
 
 
 def test_into_handle_stops_short_of_the_door():
-    # Front surface 1 cm out: only 5 mm deeper, 5 mm off the door.
     moved, _, depth = into_handle(door(handle=(0.79, -0.15, 0.7)), 0.015)
     assert depth == pytest.approx(0.005)
     assert moved.handle == pytest.approx([0.795, -0.15, 0.7])
 
-
-# --- run ------------------------------------------------------------------------
 
 START = {
     "lift_joint": 0.6,
@@ -140,7 +133,6 @@ def urdf():
 
 @pytest.fixture(scope="module")
 def handle(urdf):
-    """A handle the arm alone reaches from START, in base_link."""
     return IKSolver(urdf).fk({**START, "arm_joint": 0.35}).translation.copy()
 
 
@@ -149,20 +141,20 @@ class FakeRobot:
         self.urdf = urdf
         self.joints = dict(START)
         self.paths = []
-        self.holding = True  # what close_gripper finds
-        self.gripper = []  # "open" / "close", in order
+        self.holding = True
+        self.gripper = []
 
     def arm_joints(self):
         return dict(self.joints)
 
-    def follow_path(self, points, should_cancel, gains=None):
+    def follow_path(self, points, cancel, gains=None):
         self.paths.append(points)
         self.joints.update({k: points[-1][k] for k in START})
 
-    def open_gripper(self, should_cancel):
+    def open_gripper(self, cancel):
         self.gripper.append(("open", len(self.paths)))
 
-    def close_gripper(self, should_cancel):
+    def close_gripper(self, cancel):
         self.gripper.append(("close", len(self.paths)))
         return self.holding
 
@@ -171,7 +163,7 @@ class FakeLocator:
     def __init__(self, found):
         self.found = found
 
-    def locate(self, prompt, should_cancel):
+    def locate(self, prompt, cancel):
         return self.found
 
 
@@ -203,7 +195,7 @@ class FakeLog:
 def make_case(urdf, found=None, **cfg):
     robot = FakeRobot(urdf)
     observer = FakeObserver()
-    ctx = Context(robot, FakeLocator(found), observer, FakeLog(), lambda: False)
+    ctx = Context(robot, FakeLocator(found), observer, FakeLog(), CancelToken())
     defaults = dict(dry_run=False, start_pose=START, settle_time=0.0)
     values = {**defaults, **cfg}
     shared_names = {f.name for f in fields(ServerConfig)}
@@ -223,7 +215,7 @@ def test_opens_a_door_given_by_points(urdf, handle, hinge_dy):
     assert ctx.observer.phases == list(Phase)
     start, grasp, arc = ctx.robot.paths
     assert len(start) == 1 and len(grasp) == 1
-    assert "base_x" not in grasp[0]  # the handle is reached with the arm alone
+    assert "base_x" not in grasp[0]
     assert {"base_x", "base_y", "base_theta"} <= set(arc[-1])
     assert 1 <= len(arc) <= cfg.n_waypoints - 1
     assert 0 < outcome.opened <= outcome.asked == pytest.approx(np.pi / 2)
@@ -231,10 +223,10 @@ def test_opens_a_door_given_by_points(urdf, handle, hinge_dy):
 
 def test_far_handle_moves_the_base_with_the_arm(urdf, handle):
     cfg, shared, ctx = make_case(urdf)
-    far = handle + [0.3, 0.0, 0.0]  # 30 cm beyond the arm's reach from START
+    far = handle + [0.3, 0.0, 0.0]
     articulate.run(point_goal(far, -0.30), cfg, shared, ctx)
     _, (grasp,), arc = ctx.robot.paths
-    assert grasp["base_x"] > 0.1  # toward the door, in the same path as the arm
+    assert grasp["base_x"] > 0.1
     assert grasp["arm_joint"] == pytest.approx(cfg.approach_arm, abs=0.1)
     assert len(arc) >= 1
 
@@ -249,7 +241,6 @@ def test_dry_run_only_plans(urdf, handle):
 def test_gripper_opens_before_reaching_and_closes_on_the_handle(urdf, handle):
     cfg, shared, ctx = make_case(urdf)
     articulate.run(point_goal(handle, 0.30), cfg, shared, ctx)
-    # paths: start pose, reach the handle, the arc
     assert ctx.robot.gripper == [("open", 1), ("close", 2)]
 
 
@@ -258,7 +249,7 @@ def test_missed_handle_fails_before_pulling(urdf, handle):
     ctx.robot.holding = False
     with pytest.raises(articulate.ArticulateFailed, match="missed the handle"):
         articulate.run(point_goal(handle, 0.30), cfg, shared, ctx)
-    assert len(ctx.robot.paths) == 2  # no arc
+    assert len(ctx.robot.paths) == 2
 
 
 @pytest.mark.parametrize(
@@ -276,7 +267,7 @@ def test_unsupported_doors_are_not_implemented(urdf, found):
         articulate.run(ArticulateGoal(prompt="door"), cfg, shared, ctx)
     (seen,) = ctx.observer.doors
     assert (seen.type, seen.handle_type) == (found.type, found.handle_type)
-    assert len(ctx.robot.paths) == 1  # only the start pose
+    assert len(ctx.robot.paths) == 1
 
 
 def test_handle_out_of_reach(urdf):

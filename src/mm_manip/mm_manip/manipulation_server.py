@@ -1,19 +1,3 @@
-"""
-~/grasp (mm_interfaces/action/Grasp)
-~/articulate (mm_interfaces/action/Articulate)
-
-  ros2 run mm_manip manipulation_server --ros-args --params-file config/manipulation.yaml
-  ros2 action send_goal /mm_manip/grasp mm_interfaces/action/Grasp "{prompt: cup}"
-  ros2 action send_goal /mm_manip/articulate mm_interfaces/action/Articulate \
-    "{prompt: the cabinet door}"
-
-MODE_PROMPT of articulate asks Gemini, with the key in GEMINI_API_KEY.
-
-dry_run: nothing moves. The plan is shown in RViz through ~/target_markers and
-~/ghost_joint_states (feed it to a second robot_state_publisher with
-frame_prefix "ghost/"). The ghost shows the arm only, not the base motion.
-"""
-
 import threading
 import traceback
 
@@ -28,20 +12,20 @@ from sensor_msgs.msg import JointState
 
 from mm_interfaces.action import Articulate, Grasp
 
+from .cancel import CancelToken
 from .config import ArticulateConfig, GraspConfig, ServerConfig
-from .errors import Canceled
-from .motion.planning import PlanningError
-from .motion.robot import GripperSettings, MotionError, Robot
+from .errors import Canceled, SkillError
+from .motion.robot import GripperSettings, Robot
 from .motion.trajectory import urdf_joint_positions
 from .perception.door import DoorType, GeminiDoorKeypoints, HandleType
 from .perception.door_locator import DoorLocator
 from .perception.gemini import GeminiClient, GeminiError
 from .perception.locator import Locator, PerceptionError
-from .scene import Scene, SceneError
+from .scene import Scene
 from .skills import articulate, grasp
-from .skills.articulate import ArticulateFailed, ArticulateGoal
-from .skills.grasp import GraspFailed, GraspGoal
-from .skills.primitives import Context, OutOfReach, sleep
+from .skills.articulate import ArticulateGoal
+from .skills.grasp import GraspGoal
+from .skills.primitives import Context
 
 for _phases, _feedback in (
     (grasp.Phase, Grasp.Feedback),
@@ -52,17 +36,6 @@ for _phases, _feedback in (
     )
 assert all(getattr(Articulate.Result, f"TYPE_{t.name}") == t for t in DoorType)
 assert all(getattr(Articulate.Result, f"HANDLE_{h.name}") == h for h in HandleType)
-
-# Errors that abort a goal with their message.
-_FAILURES = (
-    GraspFailed,
-    ArticulateFailed,
-    OutOfReach,
-    MotionError,
-    PlanningError,
-    SceneError,
-    PerceptionError,
-)
 
 
 class ManipulationServer(Node):
@@ -137,10 +110,7 @@ class ManipulationServer(Node):
             )
         self.get_logger().info(f"READY (dry_run={cfg.dry_run})")
 
-    # --- goals --------------------------------------------------------------
-
     def _accept(self, goal, action, what) -> GoalResponse:
-        """Accept a goal of `action` if it is well formed and nothing else runs."""
         if goal.mode == action.Goal.MODE_PROMPT and not goal.prompt.strip():
             self.get_logger().warn(f"rejecting {what} goal: MODE_PROMPT needs a prompt")
             return GoalResponse.REJECT
@@ -160,22 +130,19 @@ class ManipulationServer(Node):
     def _on_articulate_goal(self, goal):
         return self._accept(goal, Articulate, "articulate")
 
+    # Do not rename to _context: rclpy.Node uses self._context.
     def _skill_context(self, goal_handle, observer_type, shared, locator):
-        # Not "_context": rclpy.Node keeps its rclpy Context in self._context.
-        def should_cancel():
-            return goal_handle.is_cancel_requested
-
+        cancel = CancelToken(lambda: goal_handle.is_cancel_requested)
         self._robot.set_gripper(_gripper_settings(shared))
         return Context(
             robot=self._robot,
             locator=locator,
-            observer=observer_type(self, goal_handle, shared.base_frame, should_cancel),
+            observer=observer_type(self, goal_handle, shared.base_frame, cancel),
             log=self.get_logger(),
-            should_cancel=should_cancel,
+            cancel=cancel,
         )
 
     def _finish(self, goal_handle, result, what, body):
-        """Run body() (sets result.message on success), end the goal, free the robot."""
         try:
             body()
             result.success = True
@@ -187,10 +154,10 @@ class ManipulationServer(Node):
         except NotImplementedError as e:
             result.message = f"not implemented yet: {e}"
             goal_handle.abort()
-        except _FAILURES as e:
+        except SkillError as e:
             result.message = str(e)
             goal_handle.abort()
-        except Exception as e:  # a bug: stop, report it, and stay usable
+        except Exception as e:  # a bug: stop, log, and stay usable
             self._robot.stop()
             self.get_logger().error(f"{what} crashed: {traceback.format_exc()}")
             result.message = f"internal error: {e!r}"
@@ -199,7 +166,7 @@ class ManipulationServer(Node):
             with self._busy_lock:
                 self._busy = False
 
-        # One call site per severity: rclpy refuses a call site whose severity changes.
+        # rclpy refuses a call site that logs with two severities.
         if result.success:
             self.get_logger().info(f"{what} result: {result.message}")
         else:
@@ -209,8 +176,8 @@ class ManipulationServer(Node):
     def _execute_grasp(self, goal_handle):
         result = Grasp.Result()
 
+        # Do all work in body(), so that _finish frees the server on all errors.
         def body():
-            # Everything inside body(), so _finish frees the robot whatever fails.
             cfg = GraspConfig.from_node(self)
             shared = ServerConfig.from_node(self)
             ctx = self._skill_context(
@@ -230,7 +197,7 @@ class ManipulationServer(Node):
             shared = ServerConfig.from_node(self)
             locator = _DoorFinder(self._door_locator, cfg)
             ctx = self._skill_context(goal_handle, _ArticulateObserver, shared, locator)
-            ctx.observer.result = result  # filled with the door and handle type
+            ctx.observer.result = result
             goal = self._articulate_goal(goal_handle.request)
             outcome = articulate.run(goal, cfg, shared, ctx)
             opened, asked = np.rad2deg(outcome.opened), np.rad2deg(outcome.asked)
@@ -241,7 +208,6 @@ class ManipulationServer(Node):
         return self._finish(goal_handle, result, "articulate", body)
 
     def _articulate_goal(self, request):
-        """The action goal as an ArticulateGoal; MODE_POINT points go to the base frame."""
         if request.mode == Articulate.Goal.MODE_POINT:
             to_base = self._scene.to_base
             return ArticulateGoal(
@@ -252,7 +218,6 @@ class ManipulationServer(Node):
         return ArticulateGoal(prompt=request.prompt, open_angle=request.open_angle)
 
     def _grasp_goal(self, request):
-        """The action goal as a GraspGoal; a MODE_POINT target goes to the base frame."""
         if request.mode == Grasp.Goal.MODE_POINT:
             point = request.target_point
             return GraspGoal(point=self._scene.to_base(point.header, point.point))
@@ -288,13 +253,11 @@ def _gripper_settings(cfg) -> GripperSettings:
 
 
 class _DoorFinder:
-    """ctx.locator for articulate: the door Gemini points to, for this goal's config."""
-
     def __init__(self, door_locator, cfg):
         self._door_locator = door_locator
         self._cfg = cfg
 
-    def locate(self, prompt, should_cancel):
+    def locate(self, prompt, cancel):
         cfg = self._cfg
         try:
             client = GeminiClient(
@@ -305,7 +268,7 @@ class _DoorFinder:
         return self._door_locator.locate(
             prompt,
             GeminiDoorKeypoints(client, max_side=cfg.image_max_side),
-            should_cancel,
+            cancel,
             depth_band=cfg.door_depth_band,
             shrink=cfg.quad_shrink,
             debug_dir=cfg.debug_dir,
@@ -313,27 +276,24 @@ class _DoorFinder:
 
 
 class _Observer:
-    """What a skill reports, as action feedback, RViz markers and logs."""
+    feedback = None
 
-    feedback = None  # the action's Feedback type
-
-    def __init__(self, server, goal_handle, base_frame, should_cancel):
+    def __init__(self, server, goal_handle, base_frame, cancel):
         self._server = server
         self._goal_handle = goal_handle
         self._base_frame = base_frame
-        self._should_cancel = should_cancel
+        self._cancel = cancel
 
     def phase(self, phase):
         self._goal_handle.publish_feedback(self.feedback(phase=int(phase)))
 
     def ghost(self, waypoints):
-        """Play the arm waypoints on ~/ghost_joint_states, using URDF joint names."""
         for joints in waypoints:
             msg = JointState()
             msg.header.stamp = self._server.get_clock().now().to_msg()
             msg.name, msg.position = urdf_joint_positions(joints)
             self._server._ghost_pub.publish(msg)
-            sleep(0.3, self._should_cancel)
+            self._cancel.sleep(0.3)
 
     def _log(self, message):
         self._server.get_logger().info(message)
@@ -341,7 +301,7 @@ class _Observer:
 
 class _ArticulateObserver(_Observer):
     feedback = Articulate.Feedback
-    result = None  # Articulate.Result to fill with what was detected
+    result = None
 
     def door(self, door):
         if self.result is not None:
@@ -362,7 +322,6 @@ class _GraspObserver(_Observer):
     feedback = Grasp.Feedback
 
     def target(self, center):
-        # Shown before planning, so it is visible even if IK fails.
         self._server._scene.publish_markers(center)
         self._log(f"target in {self._base_frame}: {center.round(3)}")
 
