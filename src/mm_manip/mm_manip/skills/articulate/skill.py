@@ -1,4 +1,4 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import IntEnum
 
 import numpy as np
@@ -93,8 +93,6 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
                 f"+ handle_offset {cfg.handle_offset} m"
             )
             door = with_handle_offset(door, cfg.handle_offset)
-        # HACK: the grasps land left of and above the handle.
-        door = replace(door, handle=door.handle + [0.0, -0.015, -0.05])
     ctx.report.keep(door=door)
     ctx.report.show(door.handle)
     ctx.log.info(
