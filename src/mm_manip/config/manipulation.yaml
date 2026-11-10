@@ -1,91 +1,96 @@
 # ros2 run mm_manip manipulation_server --ros-args --params-file <this file>
-# Top level: shared by every skill (ServerConfig). grasp: the grasp skill (GraspConfig).
+# Each name is in NOTE.md. frames, robot, camera, detect: read at startup only.
+# The other names: read at the start of each goal (ros2 param set works).
 mm_manip:
   ros__parameters:
-    dry_run: true # true: plan + RViz only, nothing moves
-    base_frame: base_link
-    ee_frame: grasp_center_link
+    # ---- startup
+    frames:
+      base: base_link
+      ee: grasp_center_link
 
-    fjt_action: /follow_joint_trajectory
-    driver_joint:
-      lift_joint: lift_joint
-      arm_joint: arm_joint
-      wrist_yaw_joint: wrist_yaw_joint
-      wrist_pitch_joint: wrist_pitch_joint
-      wrist_roll_joint: wrist_roll_joint
+    robot:
+      fjt_action: /follow_joint_trajectory
+      driver_joint:
+        lift_joint: lift_joint
+        arm_joint: arm_joint
+        wrist_yaw_joint: wrist_yaw_joint
+        wrist_pitch_joint: wrist_pitch_joint
+        wrist_roll_joint: wrist_roll_joint
+      fjt_mode: navigation
+      control_rate: 30.0 # Hz
+      path_settle_timeout: 5.0 # s
+      no_split_action_timeout: 10.0 # s
+      max_step:
+        lift_joint: 0.2
+        arm_joint: 0.15
+        wrist_yaw_joint: 0.8
+        wrist_pitch_joint: 0.8
+        wrist_roll_joint: 0.8
 
-    no_split_action_timeout: 10.0
-    max_step:
-      lift_joint: 0.2
-      arm_joint: 0.15
-      wrist_yaw_joint: 0.8
-      wrist_pitch_joint: 0.8
-      wrist_roll_joint: 0.8
-    fjt_mode: navigation # driver mode for FJT moves; velocity paths switch to velocity
-    control_rate: 30.0 # Hz, velocity path commands
-    path_settle_timeout: 5.0 # s allowed after a velocity path ends to arrive
+    camera:
+      color_topic: /cameras_gripper/right/image_raw/compressed
+      depth_topic: /cameras_gripper/stereo/image_raw/compressedDepth
+      depth_compressed: true
+      camera_info_topic: /cameras_gripper/right/camera_info
+      sync_slop: 0.02 # s
+      timeout: 2.0 # s
 
-    settle_time: 0.3 # s to wait after the arm stops, before detecting
-    service_timeout: 5.0
+    detect:
+      service: /mm_perception/detect
+      timeout: 5.0 # s
+      depth_band: 0.05 # m
 
-    use_gripper: true # false: skip the gripper, still move
-    gripper_joint: gripper_joint # FJT command, driver units
-    gripper_state_joint: gripper_finger_left_joint # /joint_states, finger rad
-    gripper_open: 80.0 # past the mechanical stops: moves end when the fingers stop
-    gripper_closed: -40.0
-    gripper_closed_finger: 0.0 # TODO[lnfu] finger rad when closed on nothing: measure
-    gripper_holding_margin: 0.05 # rad: stopped farther than this = holding something
-    gripper_stall_time: 0.3 # s still short of closed = holding something
-    gripper_timeout: 5.0 # s
+    # ---- each goal
+    dry_run: true # plan and show in RViz only
+    settle_time: 0.3 # s
+    use_gripper: true
 
-    detect_service: /mm_perception/detect
-    color_topic: /cameras_gripper/right/image_raw/compressed
-    depth_topic: /cameras_gripper/stereo/image_raw/compressedDepth
-    depth_compressed: true
-    camera_info_topic: /cameras_gripper/right/camera_info
-    sync_slop: 0.02 # s, max stamp difference within a color/depth/info triple
-    snapshot_timeout: 2.0
-    depth_band: 0.05 # m, drop mask pixels this far from the median depth
+    gripper:
+      joint: gripper_joint
+      state_joint: gripper_finger_left_joint
+      open: 80.0 # driver units
+      closed: -40.0 # driver units
+      closed_finger: 0.0 # rad, TODO[lnfu] measure
+      holding_margin: 0.05 # rad
+      still: 0.005 # rad
+      stall_time: 0.3 # s
+      timeout: 5.0 # s
 
     grasp:
-      base_dofs: "" # "" | "x" | "x,y" | "x,y,theta" | ...
-
+      base_dofs: "" # "" | "x" | "x,y" | "x,y,theta"
       start_pose:
         lift_joint: 0.45
         arm_joint: 0.05
         wrist_yaw_joint: 0.0
         wrist_pitch_joint: 0.0
         wrist_roll_joint: 0.0
-
       grasp_wrist:
         wrist_yaw_joint: 0.0
         wrist_pitch_joint: 0.0
         wrist_roll_joint: 0.0
-
-      pregrasp_distance: 0.10
-
-      n_waypoints: 2 # stretch_driver stops at every point; arm-only approach is straight
-      lift_height: 0.10
+      pregrasp_distance: 0.10 # m
+      n_waypoints: 2
+      lift_height: 0.10 # m
       free_yaw: true
-      max_aim_yaw_deg: 10.0 # ~5 cm sideways; anything further is left to the base
-      base_stage_arm: 0.35
-
-      max_base_translation: 0.6 # m, per axis
-      max_base_rotation_deg: 45.0
-
-      base_max_linear: 0.1 # m/s, /cmd_vel closed loop on /wheel_odom; sentry caps it at 0.1 while the arm is out
-      base_max_angular: 0.5 # rad/s
-      base_linear_gain: 2.0 # 1/s, speed = gain * remaining distance; too high overshoots
-      base_angular_gain: 2.0 # 1/s
-      # Base moves allowed per grasp. After each one the object is detected again and
-      # the grasp replanned (the base may move again), since a first look near the
-      # image edge can be far off.
+      max_aim_yaw_deg: 10.0
+      base_stage_arm: 0.35 # m
       max_base_moves: 3
-
-      ik_accept_position_error: 0.015
-      ik_accept_orientation_error_deg: 3.0
-
-      gripper_max_opening: 0.10 # TODO[lnfu] measure
+      gripper_max_opening: 0.10 # m, TODO[lnfu] measure
+      ik:
+        position_error: 0.015 # m
+        orientation_error_deg: 3.0
+      base_limits:
+        translation: 0.6 # m, per axis
+        rotation_deg: 45.0
+      base_control:
+        max_linear: 0.1 # m/s
+        min_linear: 0.01 # m/s
+        linear_gain: 2.0 # 1/s
+        linear_tolerance: 0.01 # m
+        max_angular: 0.5 # rad/s
+        min_angular: 0.03 # rad/s
+        angular_gain: 2.0 # 1/s
+        angular_tolerance: 0.017453292519943295 # rad (1 deg)
 
     articulate:
       start_pose:
@@ -94,45 +99,44 @@ mm_manip:
         wrist_yaw_joint: 0.0
         wrist_pitch_joint: 0.0
         wrist_roll_joint: 0.0
-
-      gemini_model: gemini-robotics-er-2-preview
-      gemini_thinking_level: low # minimal | low | medium | high: slower, better
-      gemini_timeout: 20.0 # s
-      image_max_side: 640 # px, the image is shrunk to this before upload
-      quad_shrink: 0.15 # the door plane is fitted inside the corners, shrunk by this
-      door_depth_band: 0.15 # m, around the median depth inside the door
-      handle_offset: 0.01 # m out of the door plane, only when the handle is not seen in depth
-      handle_grasp_depth: 0.015 # m behind the handle's front surface seen in depth (>= 5 mm off the door)
-      debug_dir: "" # each Gemini look is saved here; "" = <ROS_LOG_DIR or ~/.ros/log>/door_debug
-
-      n_waypoints: 10 # on the opening arc, the grasp pose included
-      # Base turn strategies tried for the arc besides "free": the base turns this
-      # share of the door's turn. The plan opening furthest wins.
+      gemini:
+        model: gemini-robotics-er-2-preview
+        thinking_level: low # minimal | low | medium | high
+        timeout: 20.0 # s
+        image_max_side: 640 # px
+      door:
+        quad_shrink: 0.15
+        depth_band: 0.15 # m
+        handle_offset: 0.01 # m
+        handle_grasp_depth: 0.015 # m
+        debug_dir: "" # "" = <ROS_LOG_DIR or ~/.ros/log>/door_debug
+      n_waypoints: 10
       base_turn_ratios: [0.3, 0.5, 0.7]
-      max_base_translation: 0.6 # m, per axis
-      max_base_rotation_deg: 90.0
-      approach_arm: 0.25 # m, arm extension at the grasp when the base has to move
-      ik_accept_position_error: 0.01
-      ik_accept_orientation_error_deg: 3.0
-
-      # Velocity paths: m/s or rad/s, and how close each joint must end (m or rad).
-      path_max_velocity:
-        base_x: 0.05
-        base_y: 0.05
-        base_theta: 0.2
-        lift_joint: 0.08
-        arm_joint: 0.08
-        wrist_yaw_joint: 0.6
-        wrist_pitch_joint: 0.6
-        wrist_roll_joint: 0.6
-      path_tolerance:
-        base_x: 0.005
-        base_y: 0.005
-        base_theta: 0.005
-        lift_joint: 0.003
-        arm_joint: 0.003
-        wrist_yaw_joint: 0.01
-        wrist_pitch_joint: 0.01
-        wrist_roll_joint: 0.01
-      tracking_gain: 2.0 # 1/s, 0 = feedforward only
-      path_min_segment: 0.3 # s, shortest time between two waypoints
+      approach_arm: 0.25 # m
+      ik:
+        position_error: 0.01 # m
+        orientation_error_deg: 3.0
+      base_limits:
+        translation: 0.6 # m, per axis
+        rotation_deg: 90.0
+      path:
+        max_velocity: # m/s or rad/s
+          base_x: 0.05
+          base_y: 0.05
+          base_theta: 0.2
+          lift_joint: 0.08
+          arm_joint: 0.08
+          wrist_yaw_joint: 0.6
+          wrist_pitch_joint: 0.6
+          wrist_roll_joint: 0.6
+        tolerance: # m or rad
+          base_x: 0.005
+          base_y: 0.005
+          base_theta: 0.005
+          lift_joint: 0.003
+          arm_joint: 0.003
+          wrist_yaw_joint: 0.01
+          wrist_pitch_joint: 0.01
+          wrist_roll_joint: 0.01
+        gain: 2.0 # 1/s
+        min_segment: 0.3 # s

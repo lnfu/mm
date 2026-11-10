@@ -6,10 +6,11 @@ import pytest
 
 from mm_ik.solver import IKSolver
 from mm_manip.cancel import CancelToken
-from mm_manip.config import GraspConfig, ServerConfig
+from mm_manip.config import GoalConfig
 from mm_manip.errors import Canceled, GraspFailed, OutOfReach
 from mm_manip.skills.base import Context
 from mm_manip.skills.grasp import skill as grasp
+from mm_manip.skills.grasp.config import GraspConfig
 from mm_manip.skills.grasp.skill import GraspGoal, Phase, object_width
 
 stretch4_urdf = pytest.importorskip("stretch4_urdf")
@@ -126,10 +127,10 @@ def make_case(urdf, world, errors=(), cancel_after=None, **cfg):
     ctx = Context(robot, locator.locate, report, FakeLog(), cancel)
     defaults = dict(dry_run=False, start_pose=START, base_dofs="x,y", settle_time=0.0)
     values = {**defaults, **cfg}
-    shared_names = {f.name for f in fields(ServerConfig)}
+    shared_names = {f.name for f in fields(GoalConfig)}
     shared = {k: v for k, v in values.items() if k in shared_names}
     own = {k: v for k, v in values.items() if k not in shared_names}
-    return replace(GraspConfig(), **own), replace(ServerConfig(), **shared), ctx
+    return replace(GraspConfig(), **own), replace(GoalConfig(), **shared), ctx
 
 
 def test_reachable_object_needs_no_base(urdf, reachable):

@@ -34,13 +34,13 @@ class ArcPlan:
     base_travel: float = field(default=0.0)
 
 
-def plan_arc(arc: Arc, current: dict, cfg, shared, urdf) -> ArcPlan:
+def plan_arc(arc: Arc, current: dict, cfg, frames, urdf) -> ArcPlan:
     accept = {
-        "accept_position_error": cfg.ik_accept_position_error,
-        "accept_orientation_error": np.deg2rad(cfg.ik_accept_orientation_error_deg),
+        "accept_position_error": cfg.ik.position_error,
+        "accept_orientation_error": np.deg2rad(cfg.ik.orientation_error_deg),
     }
-    frames = {"ee_frame": shared.ee_frame, "base_frame": shared.base_frame}
-    travel, turn = cfg.max_base_translation, np.deg2rad(cfg.max_base_rotation_deg)
+    frames = {"ee_frame": frames.ee, "base_frame": frames.base}
+    travel, turn = cfg.base_limits.translation, np.deg2rad(cfg.base_limits.rotation_deg)
     limits = {
         "base_x_joint": (-travel, travel),
         "base_y_joint": (-travel, travel),

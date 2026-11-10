@@ -4,13 +4,13 @@ import time
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 
-from ..config import ServerConfig
+from ..config import StartupConfig
 from ..errors import SkillError
 from ..runtime import build
 
 
 def run_tool(main, *configs) -> int:
-    """Run main(node, runtime, ServerConfig, *configs) on a node named mm_manip.
+    """Run main(node, runtime, StartupConfig, *configs) on a node named mm_manip.
 
     Returns the exit code.
 
@@ -19,16 +19,16 @@ def run_tool(main, *configs) -> int:
     """
     rclpy.init()
     node = rclpy.create_node("mm_manip")
-    for config in (ServerConfig, *configs):
+    for config in (StartupConfig, *configs):
         config.declare(node)
-    runtime = build(node, ServerConfig.from_node(node))
+    runtime = build(node, StartupConfig.from_node(node))
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin = threading.Thread(target=executor.spin, daemon=True)
     spin.start()
     try:
         return main(
-            node, runtime, *(c.from_node(node) for c in (ServerConfig, *configs))
+            node, runtime, *(c.from_node(node) for c in (StartupConfig, *configs))
         )
     except KeyboardInterrupt:
         runtime.robot.stop()

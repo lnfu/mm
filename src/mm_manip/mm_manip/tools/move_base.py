@@ -10,9 +10,8 @@ from rclpy.utilities import remove_ros_args
 from mm_ik.joints import BASE_THETA, BASE_X, BASE_Y
 
 from ..cancel import CancelToken
-from ..config import ArticulateConfig
 from ..motion.base_control import displacement
-from ..motion.velocity import TrackingGains
+from ..skills.articulate.config import ArticulateConfig
 from .common import run_tool, wait_for
 
 
@@ -25,12 +24,7 @@ def run(args, robot, cfg):
         f"theta {args.theta_deg:+.1f} deg; mark the floor now (Ctrl-C to cancel)"
     )
     time.sleep(args.delay)
-    gains = TrackingGains(
-        max_velocity=cfg.path_max_velocity,
-        tolerance=cfg.path_tolerance,
-        gain=cfg.tracking_gain,
-        min_segment=cfg.path_min_segment,
-    )
+    gains = cfg.path
     target = {**arm, BASE_X: args.x, BASE_Y: args.y, BASE_THETA: theta}
     robot.follow_path([target], CancelToken(), gains)
     time.sleep(1.0)  # let /wheel_odom catch up
@@ -54,7 +48,7 @@ def main():
     )
     args = parser.parse_args(remove_ros_args(sys.argv)[1:])
     return run_tool(
-        lambda node, runtime, shared, cfg: run(args, runtime.robot, cfg),
+        lambda node, runtime, startup, cfg: run(args, runtime.robot, cfg),
         ArticulateConfig,
     )
 

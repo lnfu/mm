@@ -5,9 +5,10 @@ import pytest
 
 from mm_ik.solver import IKSolver
 from mm_manip.cancel import CancelToken
-from mm_manip.config import ArticulateConfig, ServerConfig
+from mm_manip.config import GoalConfig
 from mm_manip.errors import ArticulateFailed, OutOfReach
 from mm_manip.skills.articulate import skill as articulate
+from mm_manip.skills.articulate.config import ArticulateConfig
 from mm_manip.skills.articulate.door import (
     Door,
     DoorType,
@@ -201,10 +202,10 @@ def make_case(urdf, found=None, **cfg):
     )
     defaults = dict(dry_run=False, start_pose=START, settle_time=0.0)
     values = {**defaults, **cfg}
-    shared_names = {f.name for f in fields(ServerConfig)}
+    shared_names = {f.name for f in fields(GoalConfig)}
     shared = {k: v for k, v in values.items() if k in shared_names}
     own = {k: v for k, v in values.items() if k not in shared_names}
-    return replace(ArticulateConfig(), **own), replace(ServerConfig(), **shared), ctx
+    return replace(ArticulateConfig(), **own), replace(GoalConfig(), **shared), ctx
 
 
 def point_goal(handle, hinge_dy):

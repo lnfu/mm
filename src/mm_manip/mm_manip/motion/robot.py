@@ -1,7 +1,6 @@
 import math
 import threading
 import time
-from dataclasses import dataclass
 
 from control_msgs.action import FollowJointTrajectory
 from control_msgs.msg import JointJog
@@ -33,6 +32,7 @@ from .base_control import (
     translate_command,
     yaw_from_quaternion,
 )
+from .gripper import GripperSettings
 from .trajectory import (
     DEFAULT_MAX_STEP,
     MIN_JOINT_CHANGE,
@@ -49,19 +49,6 @@ PRISMATIC = ("lift_joint", "arm_joint")
 
 class MotionError(SkillError):
     pass
-
-
-@dataclass(frozen=True)
-class GripperSettings:
-    joint: str = "gripper_joint"
-    state_joint: str = "gripper_finger_left_joint"
-    open: float = 80.0  # driver units, past the mechanical stop
-    closed: float = -10.0  # driver units, past the mechanical stop
-    closed_finger: float = 0.0  # rad, finger reading when closed on nothing
-    holding_margin: float = 0.05  # rad
-    still: float = 0.005  # rad
-    stall_time: float = 0.3  # s
-    timeout: float = 5.0  # s
 
 
 class Robot:

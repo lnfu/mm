@@ -6,7 +6,6 @@ import pinocchio as pin
 
 from ...errors import GraspFailed
 from ...geometry.points import center_and_width
-from ...motion.base_control import BaseGains
 from ..primitives import approach_with_base
 from .plan import fixed_grasp_rotation, make_solvers, plan_grasp
 
@@ -27,7 +26,7 @@ class GraspGoal:
 
 
 def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
-    arm_solver, base_solver = _solvers(cfg, shared, ctx.robot.urdf)
+    arm_solver, base_solver = _solvers(cfg, ctx.frames, ctx.robot.urdf)
     rotation = fixed_grasp_rotation(arm_solver, cfg.grasp_wrist)
 
     ctx.phase(Phase.MOVING_TO_START)
@@ -51,8 +50,8 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
             pregrasp_distance=cfg.pregrasp_distance,
             n_waypoints=cfg.n_waypoints,
             lift_height=cfg.lift_height,
-            accept_position_error=cfg.ik_accept_position_error,
-            accept_orientation_error=np.deg2rad(cfg.ik_accept_orientation_error_deg),
+            accept_position_error=cfg.ik.position_error,
+            accept_orientation_error=np.deg2rad(cfg.ik.orientation_error_deg),
             base_solver=base_solver,
             base_posture={
                 "arm_joint": cfg.base_stage_arm,
@@ -88,12 +87,7 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
         current,
         center,
         max_moves=cfg.max_base_moves,
-        gains=BaseGains(
-            max_linear=cfg.base_max_linear,
-            max_angular=cfg.base_max_angular,
-            linear_gain=cfg.base_linear_gain,
-            angular_gain=cfg.base_angular_gain,
-        ),
+        gains=cfg.base_control,
         settle_time=shared.settle_time,
     )
 
@@ -115,7 +109,7 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
     return center
 
 
-def _solvers(cfg, shared, urdf):
+def _solvers(cfg, frames, urdf):
     if urdf is None:
         raise GraspFailed("no /robot_description received yet")
     try:
@@ -125,10 +119,10 @@ def _solvers(cfg, shared, urdf):
             free_yaw=cfg.free_yaw,
             grasp_yaw=cfg.grasp_wrist["wrist_yaw_joint"],
             max_aim_yaw=np.deg2rad(cfg.max_aim_yaw_deg),
-            max_base_translation=cfg.max_base_translation,
-            max_base_rotation=np.deg2rad(cfg.max_base_rotation_deg),
-            ee_frame=shared.ee_frame,
-            base_frame=shared.base_frame,
+            max_base_translation=cfg.base_limits.translation,
+            max_base_rotation=np.deg2rad(cfg.base_limits.rotation_deg),
+            ee_frame=frames.ee,
+            base_frame=frames.base,
         )
     except ValueError as e:
         raise GraspFailed(f"cannot build IK model: {e}") from e

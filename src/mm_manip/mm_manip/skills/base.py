@@ -1,8 +1,9 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from ..cancel import CancelToken
+from ..config import Frames
 
 
 class Robot(Protocol):
@@ -45,6 +46,7 @@ class Context:
     report: Report
     log: Log
     cancel: CancelToken
+    frames: Frames = field(default_factory=Frames)
 
     def phase(self, phase):
         self.cancel.check()

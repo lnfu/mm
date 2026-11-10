@@ -10,9 +10,9 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from .cancel import CancelToken
-from .config import ServerConfig
+from .config import GoalConfig, StartupConfig
 from .errors import Canceled, SkillError
-from .runtime import build, gripper_settings
+from .runtime import build
 from .skills.action import SkillAction
 from .skills.articulate.action import ArticulateAction
 from .skills.base import Context
@@ -24,15 +24,15 @@ SKILLS = (GraspAction, ArticulateAction)
 class ManipulationServer(Node):
     def __init__(self, skills=SKILLS):
         super().__init__("mm_manip")
-        ServerConfig.declare(self)
-        for skill in skills:
-            skill.config.declare(self)
-        shared = ServerConfig.from_node(self)
-        self._runtime = build(self, shared)
+        for config in (StartupConfig, GoalConfig, *(s.config for s in skills)):
+            config.declare(self)
+        startup = StartupConfig.from_node(self)
+        self._frames = startup.frames
+        self._runtime = build(self, startup)
         self._busy = False
         self._busy_lock = threading.Lock()
         for skill_type in skills:
-            skill = skill_type(self, self._runtime, shared)
+            skill = skill_type(self, self._runtime, startup)
             _check_phases(skill)
             ActionServer(
                 self,
@@ -43,7 +43,8 @@ class ManipulationServer(Node):
                 cancel_callback=lambda _: CancelResponse.ACCEPT,
                 callback_group=self._runtime.callback_group,
             )
-        self.get_logger().info(f"READY (dry_run={shared.dry_run})")
+        dry_run = GoalConfig.from_node(self).dry_run
+        self.get_logger().info(f"READY (dry_run={dry_run})")
 
     def _on_goal(self, skill: SkillAction, goal) -> GoalResponse:
         problem = skill.reject(goal)
@@ -65,10 +66,17 @@ class ManipulationServer(Node):
         report = _GoalReport(goal_handle, skill.action.Feedback, self._runtime, cancel)
         outcome = None
         try:
-            shared = ServerConfig.from_node(self)
+            shared = GoalConfig.from_node(self)
             cfg = skill.config.from_node(self)
-            robot.set_gripper(gripper_settings(shared))
-            ctx = Context(robot, skill.locator(cfg), report, self.get_logger(), cancel)
+            robot.set_gripper(shared.gripper)
+            ctx = Context(
+                robot,
+                skill.locator(cfg),
+                report,
+                self.get_logger(),
+                cancel,
+                frames=self._frames,
+            )
             outcome = skill.run(skill.goal(goal_handle.request), cfg, shared, ctx)
             result.message = skill.message(outcome, shared)
             result.success = True

@@ -1,9 +1,4 @@
-"""Closed-loop base motion on wheel odometry.
-
-A base motion (x, y, theta) from the IK is: translate by (x, y) in the starting base
-frame, then rotate by theta in place. Poses are (x, y, yaw) in the odometry frame;
-commands are (vx, vy, w) in the robot's current frame, as /cmd_vel expects.
-"""
+"""Closed-loop base motion on wheel odometry. See NOTE.md."""
 
 import math
 from dataclasses import dataclass
@@ -16,10 +11,10 @@ class Pose2D:
     yaw: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class BaseGains:
     max_linear: float = 0.05  # m/s
-    min_linear: float = 0.01  # m/s, so friction does not stall the last centimetres
+    min_linear: float = 0.01  # m/s, against friction at the end
     linear_gain: float = 1.0  # 1/s
     linear_tolerance: float = 0.01  # m
     max_angular: float = 0.2  # rad/s
@@ -46,7 +41,7 @@ def _speed(error, gain, lo, hi):
 def translate_command(
     start: Pose2D, current: Pose2D, goal_x: float, goal_y: float, g: BaseGains
 ):
-    """(vx, vy, w, done) to translate to (goal_x, goal_y) in the start frame, holding the heading."""
+    """(vx, vy, w, done): go to (goal_x, goal_y) in the start frame, same heading."""
     dx, dy, dyaw = displacement(start, current)
     ex, ey = goal_x - dx, goal_y - dy
     dist = math.hypot(ex, ey)
@@ -61,7 +56,7 @@ def translate_command(
 
 
 def rotate_command(start: Pose2D, current: Pose2D, goal_theta: float, g: BaseGains):
-    """(0, 0, w, done) to turn in place to goal_theta relative to the start heading."""
+    """(0, 0, w, done): turn in place to goal_theta from the start heading."""
     err = wrap(goal_theta - displacement(start, current)[2])
     if abs(err) < g.angular_tolerance:
         return 0.0, 0.0, 0.0, True

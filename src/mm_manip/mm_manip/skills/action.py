@@ -2,7 +2,7 @@ from collections.abc import Callable
 from enum import IntEnum
 from typing import Any
 
-from ..config import ServerConfig
+from ..config import GoalConfig, StartupConfig
 
 
 class SkillAction:
@@ -12,7 +12,7 @@ class SkillAction:
     config: type
     phases: type[IntEnum]
 
-    def __init__(self, node, runtime, shared: ServerConfig):
+    def __init__(self, node, runtime, startup: StartupConfig):
         self.node = node
         self.runtime = runtime
 
@@ -35,17 +35,17 @@ class SkillAction:
     def locator(self, cfg) -> Callable[[str, Any], Any]:
         raise NotImplementedError
 
-    def run(self, goal, cfg, shared: ServerConfig, ctx):
+    def run(self, goal, cfg, shared: GoalConfig, ctx):
         raise NotImplementedError
 
-    def message(self, outcome, shared: ServerConfig) -> str:
+    def message(self, outcome, shared: GoalConfig) -> str:
         raise NotImplementedError
 
     def fill_result(self, result, outcome, kept: dict) -> None:
         """outcome is None if the goal failed."""
 
 
-def motion_message(shared: ServerConfig, done: str) -> str:
+def motion_message(shared: GoalConfig, done: str) -> str:
     if shared.dry_run:
         return "dry_run: plan ok"
     if shared.use_gripper:

@@ -2,9 +2,9 @@ from geometry_msgs.msg import PointStamped
 
 from mm_interfaces.action import Grasp
 
-from ...config import GraspConfig
 from ..action import SkillAction, motion_message
 from . import skill
+from .config import GraspConfig
 from .locator import Locator
 
 
@@ -13,14 +13,14 @@ class GraspAction(SkillAction):
     config = GraspConfig
     phases = skill.Phase
 
-    def __init__(self, node, runtime, shared):
-        super().__init__(node, runtime, shared)
+    def __init__(self, node, runtime, startup):
+        super().__init__(node, runtime, startup)
         self._locator = Locator(
             node,
             runtime.camera,
-            shared.detect_service,
-            service_timeout=shared.service_timeout,
-            depth_band=shared.depth_band,
+            startup.detect.service,
+            service_timeout=startup.detect.timeout,
+            depth_band=startup.detect.depth_band,
             callback_group=runtime.callback_group,
         )
 

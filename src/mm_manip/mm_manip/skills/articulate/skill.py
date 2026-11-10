@@ -7,7 +7,6 @@ from mm_ik.joints import BASE_JOINTS, BASE_THETA, BASE_X, BASE_Y, arm_only
 from mm_ik.solver import IKSolver
 
 from ...errors import ArticulateFailed
-from ...motion.velocity import TrackingGains
 from .door import (
     Door,
     DoorType,
@@ -61,12 +60,7 @@ class Outcome:
 def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     if ctx.robot.urdf is None:
         raise ArticulateFailed("no /robot_description received yet")
-    gains = TrackingGains(
-        max_velocity=cfg.path_max_velocity,
-        tolerance=cfg.path_tolerance,
-        gain=cfg.tracking_gain,
-        min_segment=cfg.path_min_segment,
-    )
+    gains = cfg.path
 
     ctx.phase(Phase.MOVING_TO_START)
     if shared.dry_run:
@@ -82,7 +76,7 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     else:
         door = ctx.locate(goal.prompt, ctx.cancel)
         if door.handle_from_depth:
-            door, protrusion, moved = into_handle(door, cfg.handle_grasp_depth)
+            door, protrusion, moved = into_handle(door, cfg.door.handle_grasp_depth)
             ctx.log.info(
                 f"handle front {protrusion * 100:.1f} cm out of the door; "
                 f"grasping {moved * 100:.1f} cm behind it"
@@ -90,9 +84,9 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
         else:
             ctx.log.warn(
                 "no handle in depth in front of the door: using the door plane "
-                f"+ handle_offset {cfg.handle_offset} m"
+                f"+ handle_offset {cfg.door.handle_offset} m"
             )
-            door = with_handle_offset(door, cfg.handle_offset)
+            door = with_handle_offset(door, cfg.door.handle_offset)
     ctx.report.keep(door=door)
     ctx.report.show(door.handle)
     ctx.log.info(
@@ -108,7 +102,7 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     arc = opening_arc(door, asked, cfg.n_waypoints, HANDLE_ROLL[door.handle_type])
     ctx.report.show(arc.axis, arc.poses)
     ctx.log.info(f"hinge axis at {arc.axis.round(3)}, {len(arc.poses)} arc poses")
-    plan = plan_arc(arc, current, cfg, shared, ctx.robot.urdf)
+    plan = plan_arc(arc, current, cfg, ctx.frames, ctx.robot.urdf)
     end = plan.path[-1]
     ctx.log.info(
         f"arc: radius {radius(door, arc) * 100:.1f} cm, opens "
@@ -130,7 +124,7 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     else:
         ctx.log.warn("use_gripper is false: not opening the gripper")
     ctx.robot.follow_path([plan.grasp], ctx.cancel, gains)
-    _log_grasp_error(ctx, door, arc, plan, shared)
+    _log_grasp_error(ctx, door, arc, plan)
 
     ctx.phase(Phase.GRASPING)
     if shared.use_gripper:
@@ -144,14 +138,14 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     return outcome
 
 
-def _log_grasp_error(ctx, door, arc, plan, shared):
+def _log_grasp_error(ctx, door, arc, plan):
     """Debug only. Log the gripper error at the grasp: along the door, out, up."""
     try:
         fk = IKSolver(
             ctx.robot.urdf,
             ("x", "y", "theta"),
-            ee_frame=shared.ee_frame,
-            base_frame=shared.base_frame,
+            ee_frame=ctx.frames.ee,
+            base_frame=ctx.frames.base,
         ).fk
         base = {j: plan.grasp.get(j, 0.0) for j in BASE_JOINTS}
         measured_joints = ctx.robot.arm_joints()

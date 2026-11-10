@@ -4,10 +4,10 @@ import numpy as np
 
 from mm_interfaces.action import Articulate
 
-from ...config import ArticulateConfig
 from ...errors import PerceptionError
 from ..action import SkillAction, motion_message
 from . import skill
+from .config import ArticulateConfig
 from .door import DoorType, HandleType
 from .gemini import GeminiClient, GeminiError
 from .keypoints import GeminiDoorKeypoints
@@ -22,9 +22,9 @@ class ArticulateAction(SkillAction):
     config = ArticulateConfig
     phases = skill.Phase
 
-    def __init__(self, node, runtime, shared):
-        super().__init__(node, runtime, shared)
-        self._doors = DoorLocator(node, runtime.camera, ee_frame=shared.ee_frame)
+    def __init__(self, node, runtime, startup):
+        super().__init__(node, runtime, startup)
+        self._doors = DoorLocator(node, runtime.camera, ee_frame=startup.frames.ee)
 
     def goal(self, request) -> skill.ArticulateGoal:
         if request.mode == Articulate.Goal.MODE_POINT:
@@ -44,17 +44,17 @@ class ArticulateAction(SkillAction):
     def _locate(self, cfg, prompt, cancel):
         try:
             client = GeminiClient(
-                cfg.gemini_model, cfg.gemini_thinking_level, cfg.gemini_timeout
+                cfg.gemini.model, cfg.gemini.thinking_level, cfg.gemini.timeout
             )
         except GeminiError as e:
             raise PerceptionError(f"gemini: {e}") from e
         return self._doors.locate(
             prompt,
-            GeminiDoorKeypoints(client, max_side=cfg.image_max_side),
+            GeminiDoorKeypoints(client, max_side=cfg.gemini.image_max_side),
             cancel,
-            depth_band=cfg.door_depth_band,
-            shrink=cfg.quad_shrink,
-            debug_dir=cfg.debug_dir,
+            depth_band=cfg.door.depth_band,
+            shrink=cfg.door.quad_shrink,
+            debug_dir=cfg.door.debug_dir,
         )
 
     def run(self, goal, cfg, shared, ctx):
