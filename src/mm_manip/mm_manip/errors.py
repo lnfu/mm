@@ -6,6 +6,10 @@ class SkillError(RuntimeError):
     """An expected failure. The goal aborts with this message."""
 
 
+class MotionError(SkillError):
+    pass
+
+
 class PerceptionError(SkillError):
     pass
 

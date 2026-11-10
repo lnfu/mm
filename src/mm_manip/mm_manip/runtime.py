@@ -4,7 +4,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 
 from .camera.camera import Camera
 from .config import StartupConfig
-from .motion.robot import Robot
+from .robot import Robot
 from .scene import Scene
 
 
