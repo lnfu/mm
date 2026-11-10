@@ -7,6 +7,7 @@ from mm_ik.solver import IKSolver
 from mm_manip.cancel import CancelToken
 from mm_manip.config import GoalConfig
 from mm_manip.errors import ArticulateFailed, OutOfReach
+from mm_manip.skills.adapters import DryRunLocate, DryRunRobot, WithoutGripper
 from mm_manip.skills.articulate import skill as articulate
 from mm_manip.skills.articulate.config import ArticulateConfig
 from mm_manip.skills.articulate.door import (
@@ -208,6 +209,17 @@ def make_case(urdf, found=None, **cfg):
     return replace(ArticulateConfig(), **own), replace(GoalConfig(), **shared), ctx
 
 
+def with_adapters(ctx, dry_run=False, use_gripper=True):
+    """The adapters the server puts around the robot and locate."""
+    robot, locate = ctx.robot, ctx.locate
+    if not use_gripper:
+        robot = WithoutGripper(robot, ctx.log)
+    if dry_run:
+        robot = DryRunRobot(robot, ctx.report, ctx.cancel)
+        locate = DryRunLocate(locate, robot)
+    return replace(ctx, robot=robot, locate=locate)
+
+
 def point_goal(handle, hinge_dy):
     return ArticulateGoal(handle=handle, hinge=handle + [0.0, hinge_dy, 0.0])
 
@@ -235,11 +247,12 @@ def test_far_handle_moves_the_base_with_the_arm(urdf, handle):
     assert len(arc) >= 1
 
 
-def test_dry_run_only_plans(urdf, handle):
-    cfg, shared, ctx = make_case(urdf, dry_run=True)
-    articulate.run(point_goal(handle, 0.30), cfg, shared, ctx)
-    assert ctx.robot.paths == []
-    assert len(ctx.report.ghosts) == 1
+def test_dry_run_moves_nothing(urdf, handle):
+    cfg, shared, ctx = make_case(urdf)
+    robot = ctx.robot
+    articulate.run(point_goal(handle, 0.30), cfg, shared, with_adapters(ctx, True))
+    assert robot.paths == [] and robot.gripper == []
+    assert len(ctx.report.ghosts) == 3  # start pose, reach the handle, the arc
 
 
 def test_gripper_opens_before_reaching_and_closes_on_the_handle(urdf, handle):

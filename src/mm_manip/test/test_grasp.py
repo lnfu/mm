@@ -1,5 +1,4 @@
 from dataclasses import fields, replace
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -8,10 +7,11 @@ from mm_ik.solver import IKSolver
 from mm_manip.cancel import CancelToken
 from mm_manip.config import GoalConfig
 from mm_manip.errors import Canceled, GraspFailed, OutOfReach
+from mm_manip.skills.adapters import DryRunLocate, DryRunRobot, WithoutGripper
 from mm_manip.skills.base import Context
 from mm_manip.skills.grasp import skill as grasp
 from mm_manip.skills.grasp.config import GraspConfig
-from mm_manip.skills.grasp.skill import GraspGoal, Phase, object_width
+from mm_manip.skills.grasp.skill import GraspGoal, Observation, Phase, object_width
 
 stretch4_urdf = pytest.importorskip("stretch4_urdf")
 
@@ -84,7 +84,7 @@ class FakeLocator:
         offsets = np.array(
             [[0, dy, dz] for dy in (-0.03, 0, 0.03) for dz in (-0.05, 0, 0.05)]
         )
-        return SimpleNamespace(label=prompt, points=center + offsets)
+        return Observation(prompt, 1.0, center + offsets, False)
 
 
 class FakeReport:
@@ -110,6 +110,17 @@ class FakeLog:
 
     def warn(self, message):
         pass
+
+
+def with_adapters(ctx, dry_run=False, use_gripper=True):
+    """The adapters the server puts around the robot and locate."""
+    robot, locate = ctx.robot, ctx.locate
+    if not use_gripper:
+        robot = WithoutGripper(robot, ctx.log)
+    if dry_run:
+        robot = DryRunRobot(robot, ctx.report, ctx.cancel)
+        locate = DryRunLocate(locate, robot)
+    return replace(ctx, robot=robot, locate=locate)
 
 
 def looks(ctx) -> int:
@@ -189,11 +200,17 @@ def test_point_goal_uses_no_camera(urdf, reachable):
     assert np.allclose(center, ctx.robot.to_base(far), atol=1e-3)
 
 
-def test_dry_run_moves_nothing(urdf, reachable):
-    cfg, shared, ctx = make_case(urdf, reachable + [0.0, -0.30, 0.0], dry_run=True)
-    grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
-    assert ctx.robot.arm_moves == [] and ctx.robot.base_moves == []
-    assert len(ctx.report.ghosts) == 1
+def test_dry_run_moves_nothing_and_looks_once(urdf, reachable):
+    far = reachable + [0.0, -0.30, 0.0]  # needs a base move
+    cfg, shared, ctx = make_case(urdf, far)
+    robot, n_looks = ctx.robot, ctx.locate.__self__
+    center = grasp.run(GraspGoal(prompt="can"), cfg, shared, with_adapters(ctx, True))
+    assert robot.arm_moves == [] and robot.base_moves == [] and robot.gripper == []
+    assert n_looks.looks == 1  # after the simulated base move: the first look, moved
+    assert len(ctx.report.ghosts) == 3  # start pose, approach, lift
+
+    cfg, shared, real = make_case(urdf, far)
+    assert np.allclose(center, grasp.run(GraspGoal(prompt="can"), cfg, shared, real))
 
 
 def test_cancel_stops_at_the_next_phase(urdf, reachable):
@@ -235,6 +252,10 @@ def test_empty_gripper_fails_before_lifting(urdf, reachable):
 
 
 def test_without_gripper_nothing_is_commanded(urdf, reachable):
-    cfg, shared, ctx = make_case(urdf, reachable, use_gripper=False)
-    grasp.run(GraspGoal(prompt="can"), cfg, shared, ctx)
-    assert ctx.robot.gripper == []
+    cfg, shared, ctx = make_case(urdf, reachable)
+    robot = ctx.robot
+    grasp.run(
+        GraspGoal(prompt="can"), cfg, shared, with_adapters(ctx, use_gripper=False)
+    )
+    assert robot.gripper == []
+    assert len(robot.arm_moves) == 3  # still lifts

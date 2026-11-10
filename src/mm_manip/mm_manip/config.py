@@ -114,11 +114,11 @@ class GoalConfig(Parameters):
 
 @dataclass(frozen=True)
 class IKAccept:
-    position_error: float = 0.015  # m
-    orientation_error_deg: float = 3.0
+    position_error: float = 0.005  # m
+    orientation_error_deg: float = 3.0  # degrees
 
 
 @dataclass(frozen=True)
 class BaseLimits:
     translation: float = 0.6  # m, per axis
-    rotation_deg: float = 45.0
+    rotation_deg: float = 45.0  # degrees

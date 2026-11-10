@@ -1,11 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import IntEnum
 
 import numpy as np
 import pinocchio as pin
 
 from ...errors import GraspFailed
-from ...geometry.points import center_and_width
+from ...geometry.points import center_and_width, transform_points
 from ..primitives import approach_with_base
 from .plan import fixed_grasp_rotation, make_solvers, plan_grasp
 
@@ -20,6 +20,17 @@ class Phase(IntEnum):
 
 
 @dataclass(frozen=True)
+class Observation:
+    label: str
+    score: float
+    points: np.ndarray  # (N, 3), base frame
+    truncated: bool  # the mask touches the image border
+
+    def transform(self, pose: pin.SE3) -> "Observation":
+        return replace(self, points=transform_points(self.points, pose))
+
+
+@dataclass(frozen=True)
 class GraspGoal:
     prompt: str = ""
     point: np.ndarray | None = None  # base frame, no camera
@@ -30,12 +41,9 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
     rotation = fixed_grasp_rotation(arm_solver, cfg.grasp_wrist)
 
     ctx.phase(Phase.MOVING_TO_START)
-    if shared.dry_run:
-        current = cfg.start_pose
-    else:
-        ctx.robot.move_arm(ctx.robot.arm_joints(), [cfg.start_pose], ctx.cancel)
-        ctx.cancel.sleep(shared.settle_time)
-        current = ctx.robot.arm_joints()
+    ctx.robot.move_arm(ctx.robot.arm_joints(), [cfg.start_pose], ctx.cancel)
+    ctx.cancel.sleep(shared.settle_time)
+    current = ctx.robot.arm_joints()
 
     ctx.phase(Phase.DETECTING)
     center = goal.point if goal.point is not None else _detect(goal, cfg, ctx, rotation)
@@ -74,10 +82,6 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
         return center
 
     plan = replan(current, center)
-    if shared.dry_run:
-        ctx.report.ghost([plan.pregrasp] + plan.approach + [plan.lift])
-        return center
-
     ctx.phase(Phase.APPROACHING)
     plan, current, center = approach_with_base(
         ctx,
@@ -91,18 +95,12 @@ def run(goal: GraspGoal, cfg, shared, ctx) -> np.ndarray:
         settle_time=shared.settle_time,
     )
 
-    if shared.use_gripper:
-        ctx.robot.open_gripper(ctx.cancel)
-    else:
-        ctx.log.warn("use_gripper is false: not opening the gripper")
+    ctx.robot.open_gripper(ctx.cancel)
     ctx.robot.move_arm(current, [plan.pregrasp] + plan.approach, ctx.cancel)
 
     ctx.phase(Phase.GRASPING)
-    if shared.use_gripper:
-        if not ctx.robot.close_gripper(ctx.cancel):
-            raise GraspFailed("gripper closed all the way: nothing grasped")
-    else:
-        ctx.log.warn("use_gripper is false: not closing the gripper")
+    if not ctx.robot.close_gripper(ctx.cancel):
+        raise GraspFailed("gripper closed all the way: nothing grasped")
 
     ctx.phase(Phase.LIFTING)
     ctx.robot.move_arm(plan.approach[-1], [plan.lift], ctx.cancel)

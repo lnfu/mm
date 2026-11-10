@@ -63,12 +63,9 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     gains = cfg.path
 
     ctx.phase(Phase.MOVING_TO_START)
-    if shared.dry_run:
-        current = cfg.start_pose
-    else:
-        ctx.robot.follow_path([cfg.start_pose], ctx.cancel, gains)
-        ctx.cancel.sleep(shared.settle_time)
-        current = ctx.robot.arm_joints()
+    ctx.robot.follow_path([cfg.start_pose], ctx.cancel, gains)
+    ctx.cancel.sleep(shared.settle_time)
+    current = ctx.robot.arm_joints()
 
     ctx.phase(Phase.DETECTING)
     if goal.handle is not None:
@@ -114,24 +111,15 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     if approach:
         ctx.log.info(f"base moves to reach the handle: {approach}")
     outcome = Outcome(door, plan.opened, asked)
-    if shared.dry_run:
-        ctx.report.ghost([arm_only(plan.grasp)] + [arm_only(p) for p in plan.path])
-        return outcome
 
     ctx.phase(Phase.APPROACHING)
-    if shared.use_gripper:
-        ctx.robot.open_gripper(ctx.cancel)
-    else:
-        ctx.log.warn("use_gripper is false: not opening the gripper")
+    ctx.robot.open_gripper(ctx.cancel)
     ctx.robot.follow_path([plan.grasp], ctx.cancel, gains)
     _log_grasp_error(ctx, door, arc, plan)
 
     ctx.phase(Phase.GRASPING)
-    if shared.use_gripper:
-        if not ctx.robot.close_gripper(ctx.cancel):
-            raise ArticulateFailed("gripper closed all the way: missed the handle")
-    else:
-        ctx.log.warn("use_gripper is false: not closing the gripper")
+    if not ctx.robot.close_gripper(ctx.cancel):
+        raise ArticulateFailed("gripper closed all the way: missed the handle")
 
     ctx.phase(Phase.OPENING)
     ctx.robot.follow_path(plan.path, ctx.cancel, gains)

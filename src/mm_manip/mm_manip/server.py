@@ -1,4 +1,4 @@
-"""Action server: one ROS action per skill, one goal at a time. See NOTE.md."""
+"""Action server: one ROS action per skill, one goal at a time."""
 
 import threading
 import traceback
@@ -14,6 +14,7 @@ from .config import GoalConfig, StartupConfig
 from .errors import Canceled, SkillError
 from .runtime import build
 from .skills.action import SkillAction
+from .skills.adapters import DryRunLocate, DryRunRobot, WithoutGripper
 from .skills.articulate.action import ArticulateAction
 from .skills.base import Context
 from .skills.grasp.action import GraspAction
@@ -69,14 +70,7 @@ class ManipulationServer(Node):
             shared = GoalConfig.from_node(self)
             cfg = skill.config.from_node(self)
             robot.set_gripper(shared.gripper)
-            ctx = Context(
-                robot,
-                skill.locator(cfg),
-                report,
-                self.get_logger(),
-                cancel,
-                frames=self._frames,
-            )
+            ctx = self._skill_context(skill, cfg, shared, report, cancel)
             outcome = skill.run(skill.goal(goal_handle.request), cfg, shared, ctx)
             result.message = skill.message(outcome, shared)
             result.success = True
@@ -107,6 +101,16 @@ class ManipulationServer(Node):
         else:
             self.get_logger().warn(f"{skill.name} result: {result.message}")
         return result
+
+    # Not _context: rclpy.Node uses self._context.
+    def _skill_context(self, skill, cfg, shared: GoalConfig, report, cancel) -> Context:
+        robot, locate, log = self._runtime.robot, skill.locator(cfg), self.get_logger()
+        if not shared.use_gripper:
+            robot = WithoutGripper(robot, log)
+        if shared.dry_run:
+            robot = DryRunRobot(robot, report, cancel)
+            locate = DryRunLocate(locate, robot)
+        return Context(robot, locate, report, log, cancel, frames=self._frames)
 
 
 def _check_phases(skill: SkillAction):

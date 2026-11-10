@@ -1,6 +1,3 @@
-from dataclasses import dataclass
-
-import numpy as np
 from sensor_msgs.msg import CompressedImage
 
 from mm_interfaces.srv import Detect
@@ -10,14 +7,7 @@ from ...camera.images import decode_mask_png
 from ...cancel import CancelToken
 from ...errors import PerceptionError
 from ...geometry.points import mask_points, touches_edge, transform_points
-
-
-@dataclass(frozen=True)
-class Observation:
-    label: str
-    score: float
-    points: np.ndarray  # (N, 3), base frame
-    truncated: bool  # the mask touches the image border
+from .skill import Observation
 
 
 class Locator:
