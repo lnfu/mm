@@ -78,7 +78,7 @@ class Camera:
     def pixel_of_frame(self, frame: Frame, tf_frame: str) -> tuple | None:
         """Where TF puts `tf_frame` in the depth image, or None."""
         try:
-            _, origin = self._scene.lookup(header(frame, tf_frame))
+            origin = self._scene.lookup(header(frame, tf_frame)).translation
         except SceneError as e:
             self._node.get_logger().warning(f"{tf_frame} in the image: {e}")
             return None

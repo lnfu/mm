@@ -57,7 +57,7 @@ class DoorLocator:
             )
         except ValueError as e:
             raise PerceptionError(f"door: {e}") from e
-        door = door.transform(*frame.camera_to_base)
+        door = door.transform(frame.camera_to_base)
         t3 = time.monotonic()
 
         self._node.get_logger().info(

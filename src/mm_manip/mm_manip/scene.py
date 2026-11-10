@@ -1,4 +1,5 @@
 import numpy as np
+import pinocchio as pin
 import rclpy.duration
 import rclpy.time
 from geometry_msgs.msg import Point
@@ -7,7 +8,7 @@ from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 from .errors import SkillError
-from .geometry.transforms import transform_to_rt
+from .geometry.transforms import transform_to_se3
 from .motion.trajectory import urdf_joint_positions
 
 
@@ -28,9 +29,10 @@ class Scene:
     def base_frame(self) -> str:
         return self._base_frame
 
-    def lookup(self, header):
+    def lookup(self, header) -> pin.SE3:
+        """Pose of header.frame_id in the base frame, at header.stamp."""
         if header.frame_id in ("", self._base_frame):
-            return np.eye(3), np.zeros(3)
+            return pin.SE3.Identity()
         stamp = rclpy.time.Time.from_msg(header.stamp)  # zero: the latest TF
         try:
             tf = self._tf_buffer.lookup_transform(
@@ -41,11 +43,10 @@ class Scene:
             )
         except Exception as e:
             raise SceneError(f"TF {self._base_frame} <- {header.frame_id}: {e}") from e
-        return transform_to_rt(tf.transform)
+        return transform_to_se3(tf.transform)
 
     def to_base(self, header, point) -> np.ndarray:
-        R, t = self.lookup(header)
-        return R @ np.array([point.x, point.y, point.z]) + t
+        return self.lookup(header).act(np.array([point.x, point.y, point.z]))
 
     def publish_markers(self, center, poses=()):
         stamp = self._node.get_clock().now().to_msg()

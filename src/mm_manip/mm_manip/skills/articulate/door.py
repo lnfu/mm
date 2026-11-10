@@ -35,8 +35,8 @@ class Door:
     normal: np.ndarray  # unit, toward the camera
     handle_from_depth: bool = False  # False: the handle is on the door plane
 
-    def transform(self, rotation, translation) -> "Door":
-        rotation, translation = np.asarray(rotation), np.asarray(translation)
+    def transform(self, pose: pin.SE3) -> "Door":
+        rotation, translation = pose.rotation, pose.translation
         return replace(
             self,
             handle=rotation @ self.handle + translation,

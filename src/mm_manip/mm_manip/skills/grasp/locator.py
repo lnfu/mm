@@ -64,7 +64,7 @@ class Locator:
             )
         except ValueError as e:
             raise PerceptionError(f"{best.label}: {e}") from e
-        points = transform_points(points, *frame.camera_to_base)
+        points = transform_points(points, frame.camera_to_base)
         return Observation(best.label, best.score, points, truncated)
 
     def _call(self, request, cancel: CancelToken):

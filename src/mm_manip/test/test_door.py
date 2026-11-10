@@ -3,6 +3,7 @@ from dataclasses import replace
 
 import cv2
 import numpy as np
+import pinocchio as pin
 import pytest
 
 from mm_manip.cancel import CancelToken
@@ -257,7 +258,7 @@ def test_door_transform():
         np.array([0, 0, 1.0]),
     )
     rotation = np.array([[0, -1.0, 0], [1.0, 0, 0], [0, 0, 1.0]])
-    moved = door.transform(rotation, [0, 0, 1.0])
+    moved = door.transform(pin.SE3(rotation, np.array([0, 0, 1.0])))
     assert moved.handle == pytest.approx([0, 1.0, 1.0])
     assert moved.corners["top_left"] == pytest.approx([0, 0, 1.0])
     assert moved.normal == pytest.approx([0, 0, 1.0])
@@ -265,7 +266,7 @@ def test_door_transform():
     assert not moved.handle_from_depth
     assert (
         replace(door, handle_from_depth=True)
-        .transform(rotation, [0, 0, 0])
+        .transform(pin.SE3(rotation, np.zeros(3)))
         .handle_from_depth
     )
     assert moved.handle_type == HandleType.KNOB

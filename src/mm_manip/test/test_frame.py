@@ -1,11 +1,12 @@
 import numpy as np
+import pinocchio as pin
 import pytest
 
 from mm_manip.camera.frame import Frame
 
 K = np.array([[500.0, 0.0, 320.0], [0.0, 500.0, 200.0], [0.0, 0.0, 1.0]])
 # Camera 1 m above the base origin, looking along base +x (optical z = base x).
-CAMERA_TO_BASE = (
+CAMERA_TO_BASE = pin.SE3(
     np.array([[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]]),
     np.array([0.0, 0.0, 1.0]),
 )

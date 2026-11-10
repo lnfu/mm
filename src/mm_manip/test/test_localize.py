@@ -1,4 +1,5 @@
 import numpy as np
+import pinocchio as pin
 import pytest
 
 from mm_manip.geometry.points import (
@@ -63,7 +64,9 @@ def test_mask_at_double_resolution():
 def test_transform_points():
     # optical frame (z forward, x right, y down) -> a body frame (x forward, y left, z up)
     R = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]], float)
-    pts = transform_points(np.array([[0.1, 0.2, 0.5]]), R, [1.0, 0.0, 0.0])
+    pts = transform_points(
+        np.array([[0.1, 0.2, 0.5]]), pin.SE3(R, np.array([1.0, 0, 0]))
+    )
     assert pts[0] == pytest.approx([1.5, -0.1, -0.2])
 
 

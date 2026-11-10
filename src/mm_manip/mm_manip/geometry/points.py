@@ -42,10 +42,9 @@ def mask_points(mask, depth, K, depth_band=0.05, min_points=30) -> np.ndarray:
     return np.column_stack(((u - cx) * zs / fx, (v - cy) * zs / fy, zs))
 
 
-def transform_points(
-    points: np.ndarray, rotation: np.ndarray, translation: np.ndarray
-) -> np.ndarray:
-    return points @ np.asarray(rotation).T + np.asarray(translation)
+def transform_points(points: np.ndarray, pose) -> np.ndarray:
+    """(N, 3) points through a pin.SE3."""
+    return points @ pose.rotation.T + pose.translation
 
 
 def center_and_width(points: np.ndarray, width_axis: int = 1, percentile: float = 2.0):
