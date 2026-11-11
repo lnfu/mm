@@ -21,7 +21,6 @@ PURE = [
     "mm_manip.skills.base",
     "mm_manip.skills.primitives",
     "mm_manip.skills.articulate.config",
-    "mm_manip.skills.articulate.debug",
     "mm_manip.skills.articulate.door",
     "mm_manip.skills.articulate.gemini",
     "mm_manip.skills.articulate.keypoints",

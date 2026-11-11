@@ -23,7 +23,6 @@ setup(
     entry_points={
         "console_scripts": [
             "manipulation_server = mm_manip.server:main",
-            "move_base = mm_manip.tools.move_base:main",
         ],
     },
 )

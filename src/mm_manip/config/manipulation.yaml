@@ -109,7 +109,6 @@ mm_manip:
         depth_band: 0.15 # m
         handle_offset: 0.01 # m
         handle_grasp_depth: 0.015 # m
-        debug_dir: "" # "" = <ROS_LOG_DIR or ~/.ros/log>/door_debug
       n_waypoints: 10
       base_turn_ratios: [0.3, 0.5, 0.7]
       approach_arm: 0.25 # m

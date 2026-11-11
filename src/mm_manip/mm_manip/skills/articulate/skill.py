@@ -3,8 +3,7 @@ from enum import IntEnum
 
 import numpy as np
 
-from mm_ik.joints import BASE_JOINTS, BASE_THETA, BASE_X, BASE_Y, arm_only
-from mm_ik.solver import IKSolver
+from mm_ik.joints import BASE_JOINTS, BASE_THETA, BASE_X, BASE_Y
 
 from ...errors import ArticulateFailed
 from .door import (
@@ -12,8 +11,6 @@ from .door import (
     DoorType,
     HandleType,
     door_from_points,
-    hinge_axis,
-    horizontal,
     into_handle,
     opening_arc,
     radius,
@@ -115,7 +112,6 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     ctx.phase(Phase.APPROACHING)
     ctx.robot.open_gripper(ctx.cancel)
     ctx.robot.follow_path([plan.grasp], ctx.cancel, gains)
-    _log_grasp_error(ctx, door, arc, plan)
 
     ctx.phase(Phase.GRASPING)
     if not ctx.robot.close_gripper(ctx.cancel):
@@ -124,37 +120,3 @@ def run(goal: ArticulateGoal, cfg, shared, ctx) -> Outcome:
     ctx.phase(Phase.OPENING)
     ctx.robot.follow_path(plan.path, ctx.cancel, gains)
     return outcome
-
-
-def _log_grasp_error(ctx, door, arc, plan):
-    """Debug only. Log the gripper error at the grasp: along the door, out, up."""
-    try:
-        fk = IKSolver(
-            ctx.robot.urdf,
-            ("x", "y", "theta"),
-            ee_frame=ctx.frames.ee,
-            base_frame=ctx.frames.base,
-        ).fk
-        base = {j: plan.grasp.get(j, 0.0) for j in BASE_JOINTS}
-        measured_joints = ctx.robot.arm_joints()
-        target = arc.poses[0].translation
-        planned = fk({**arm_only(plan.grasp), **base}).translation
-        measured = fk({**measured_joints, **base}).translation
-    except Exception as e:  # noqa: BLE001  debugging must not fail the goal
-        ctx.log.warn(f"grasp error check: {e}")
-        return
-    out = horizontal(door.normal)
-    along = horizontal(hinge_axis(door) - door.handle)
-
-    def split(p):
-        e = p - target
-        return f"along {e @ along:+.3f}, out {e @ out:+.3f}, up {e[2]:+.3f}"
-
-    joints = ", ".join(
-        f"{j.removesuffix('_joint')} {plan.grasp[j]:.3f}/{measured_joints[j]:.3f}"
-        for j in arm_only(plan.grasp)
-    )
-    ctx.log.info(
-        f"grasp error (m, gripper - handle): planned {split(planned)}; "
-        f"measured {split(measured)}; joints planned/measured: {joints}"
-    )

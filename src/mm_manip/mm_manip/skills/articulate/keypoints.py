@@ -42,7 +42,6 @@ class GeminiDoorKeypoints:
         self._client = client
         self._max_side = max_side
         self._jpeg_quality = jpeg_quality
-        self.last_answer = None
 
     def keypoints(self, image, prompt, size, cancel) -> DoorKeypoints:
         text = self._client.ask(
@@ -51,7 +50,6 @@ class GeminiDoorKeypoints:
             build_prompt(prompt),
             cancel,
         )
-        self.last_answer = text
         return parse_response(text, *size)
 
 

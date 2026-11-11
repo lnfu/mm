@@ -24,7 +24,7 @@ class ArticulateAction(SkillAction):
 
     def __init__(self, node, runtime, startup):
         super().__init__(node, runtime, startup)
-        self._doors = DoorLocator(node, runtime.camera, ee_frame=startup.frames.ee)
+        self._doors = DoorLocator(node, runtime.camera)
 
     def goal(self, request) -> skill.ArticulateGoal:
         if request.mode == Articulate.Goal.MODE_POINT:
@@ -54,7 +54,6 @@ class ArticulateAction(SkillAction):
             cancel,
             depth_band=cfg.door.depth_band,
             shrink=cfg.door.quad_shrink,
-            debug_dir=cfg.door.debug_dir,
         )
 
     def run(self, goal, cfg, shared, ctx):

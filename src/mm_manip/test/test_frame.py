@@ -1,6 +1,5 @@
 import numpy as np
 import pinocchio as pin
-import pytest
 
 from mm_manip.camera.frame import Frame
 
@@ -24,19 +23,6 @@ def frame():
         stamp_ns=0,
         age=0.0,
     )
-
-
-def test_point_ahead_is_at_the_image_center():
-    assert frame().pixel_of([2.0, 0.0, 1.0]) == pytest.approx((320.0, 200.0))
-
-
-def test_point_left_and_up_is_left_and_up_in_the_image():
-    u, v = frame().pixel_of([2.0, 0.2, 1.2])
-    assert u == pytest.approx(320.0 - 50.0) and v == pytest.approx(200.0 - 50.0)
-
-
-def test_point_behind_the_camera_is_none():
-    assert frame().pixel_of([-1.0, 0.0, 1.0]) is None
 
 
 def test_depth_size_is_width_height():

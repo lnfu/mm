@@ -21,7 +21,6 @@ class DoorSettings:
     depth_band: float = 0.15  # m
     handle_offset: float = 0.03  # m
     handle_grasp_depth: float = 0.015  # m
-    debug_dir: str = ""  # "" = <ROS log dir>/door_debug
 
 
 @dataclass(frozen=True)

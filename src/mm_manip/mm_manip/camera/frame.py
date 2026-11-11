@@ -19,11 +19,3 @@ class Frame:
     @property
     def depth_size(self) -> tuple:
         return self.depth.shape[1], self.depth.shape[0]
-
-    def pixel_of(self, point_in_base) -> tuple | None:
-        """(u, v) in the depth image, or None behind the camera."""
-        point = self.camera_to_base.actInv(np.asarray(point_in_base, float))
-        if point[2] <= 0:
-            return None
-        u, v, _ = self.K @ point / point[2]
-        return float(u), float(v)
