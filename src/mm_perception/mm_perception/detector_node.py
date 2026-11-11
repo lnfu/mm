@@ -2,16 +2,12 @@
 
 Services (under the node name, default /mm_perception/):
   ~/detect (mm_interfaces/Detect): detect `prompt` in the request image, return masks.
-Topics:
-  ~/debug_image/compressed (sensor_msgs/CompressedImage): annotated result,
-      only published while someone subscribes.
 """
 
 import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import CompressedImage
 
 from mm_interfaces.msg import Detection
 from mm_interfaces.srv import Detect
@@ -50,9 +46,6 @@ class DetectorNode(Node):
             )
 
         self.create_service(Detect, "~/detect", self._on_detect)
-        self._debug_pub = self.create_publisher(
-            CompressedImage, "~/debug_image/compressed", 1
-        )
         self.get_logger().info("ready")
 
     def _on_detect(self, req, res):
@@ -95,15 +88,6 @@ class DetectorNode(Node):
         res.success = True
         res.message = f"{len(dets)} detection(s) for {classes}"
         self.get_logger().info(res.message)
-
-        if self._debug_pub.get_subscription_count() > 0:
-            ok, buf = cv2.imencode(".jpg", result.plot())
-            if ok:
-                self._debug_pub.publish(
-                    CompressedImage(
-                        header=req.image.header, format="jpeg", data=buf.tobytes()
-                    )
-                )
         return res
 
     def _fail(self, res, message):
