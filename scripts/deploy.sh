@@ -13,7 +13,7 @@ fi
 source "$ROOT/.env"
 
 GPU_PKGS=(mm_interfaces mm_perception)
-ROBOT_PKGS=(mm_interfaces mm_ik mm_grasp)
+ROBOT_PKGS=(mm_interfaces mm_ik mm_manip)
 
 usage() {
   echo "usage: $0 [gpu|robot|all] [--build] [--test] [--dry-run]" >&2
@@ -45,6 +45,11 @@ deploy() {
       --exclude '__pycache__/' --exclude '*.pyc' --exclude '.pytest_cache/' \
       "$ROOT/src/$pkg/" "$host:$REMOTE_WS/src/$pkg/"
   done
+  if [ "$name" = robot ]; then
+    # GEMINI_API_KEY for the server; readable by the robot user only.
+    rsync -a --chmod=F600 --itemize-changes "${dry_run[@]}" \
+      "$ROOT/.env" "$host:$REMOTE_WS/.env"
+  fi
 
   if $build && [ ${#dry_run[@]} -eq 0 ]; then
     echo "==> $name: colcon build"

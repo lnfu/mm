@@ -10,6 +10,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Detection.msg"
   "srv/Detect.srv"
   "action/Grasp.action"
+  "action/Articulate.action"
   DEPENDENCIES sensor_msgs geometry_msgs
 )
 

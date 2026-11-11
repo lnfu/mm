@@ -1,22 +1,12 @@
-"""Pinocchio model used for IK.
-
-The model always contains a virtual planar base (x, y, theta) in front of the
-URDF root. `base_dofs` chooses which of those are free; the rest are locked at 0.
-
-The telescoping arm (arm_l1..arm_l4) is merged into one joint: arm_l1..arm_l3
-are locked at 0 and arm_l4 gets the summed range. The four joints share the same
-axis, so this matches the official `merge_arm` in stretch4_urdf.
-"""
-
 import xml.etree.ElementTree as ET
 
 import numpy as np
 import pinocchio as pin
 
+from .joints import ARM_SEGMENTS
+
 BASE_JOINTS = {"x": "base_x_joint", "y": "base_y_joint", "theta": "base_theta_joint"}
-ARM_SEGMENTS = ["arm_l1_joint", "arm_l2_joint", "arm_l3_joint", "arm_l4_joint"]
-# The merged arm lives on the last segment in the reduced model.
-MERGED_ARM = ARM_SEGMENTS[-1]
+MERGED_ARM = ARM_SEGMENTS[-1]  # carries the full arm range in the reduced model
 ARM_JOINTS = [
     "lift_joint",
     MERGED_ARM,
@@ -25,12 +15,11 @@ ARM_JOINTS = [
     "wrist_roll_joint",
 ]
 
-# Large but finite so the QP limits stay well defined.
+# Large but finite, so the QP limits stay defined.
 _BASE_LIMIT = {"x": 5.0, "y": 5.0, "theta": np.pi}
 
 
 def _add_virtual_base(urdf_xml: str) -> str:
-    """Prepend odom -> base_x -> base_y -> base_theta -> <URDF root>."""
     robot = ET.fromstring(urdf_xml)
     children = {j.find("child").get("link") for j in robot.findall("joint")}
     roots = [
@@ -81,15 +70,6 @@ def _add_virtual_base(urdf_xml: str) -> str:
 
 
 def build_model(urdf_xml: str, base_dofs=(), joint_limits=None) -> pin.Model:
-    """Return the reduced model with only lift, merged arm, wrist and `base_dofs` free.
-
-    Args:
-        urdf_xml: Robot URDF, e.g. the `/robot_description` string.
-        base_dofs: Subset of ('x', 'y', 'theta') to leave free.
-        joint_limits: Optional {joint_name: (lower, upper)} to tighten limits
-            after the arm merge (use MERGED_ARM for the arm). Joints that are not
-            free in this model (e.g. base_y_joint with base_dofs=('x',)) are ignored.
-    """
     unknown = set(base_dofs) - set(BASE_JOINTS)
     if unknown:
         raise ValueError(

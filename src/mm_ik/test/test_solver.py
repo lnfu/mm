@@ -68,7 +68,7 @@ def test_base_helps_reach_beyond_arm(urdf_xml):
     assert result.joints["base_x"] > 0.25
 
 
-def test_solve_path_straight_line(urdf_xml):
+def test_warm_started_straight_line(urdf_xml):
     solver = IKSolver(urdf_xml, base_dofs=("x",))
     goal = solver.fk({**START, "arm_joint": 0.4})
     pre = pin.SE3(goal.rotation, goal.translation - goal.rotation[:, 0] * 0.1)
@@ -78,8 +78,11 @@ def test_solve_path_straight_line(urdf_xml):
         )
         for s in np.linspace(0, 1, 6)
     ]
-    results = solver.solve_path(START, line)
-    assert len(results) == len(line) and all(r.converged for r in results)
+    results, joints = [], START
+    for target in line:
+        results.append(solver.solve(joints, target))
+        joints = results[-1].joints
+    assert all(r.converged for r in results)
     for r, target in zip(results, line):
         assert (
             np.linalg.norm(solver.fk(r.joints).translation - target.translation) < 2e-3

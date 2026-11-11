@@ -13,12 +13,12 @@ fi
 source "$ROOT/.env"
 
 GPU_DEPS=(ultralytics "numpy<2")
-ROBOT_DEPS=(pin pin-pink daqp "numpy<2")
+ROBOT_DEPS=(pin pin-pink daqp "numpy<2" google-genai)
 
 GPU_CHECK='import numpy, cv2, torch, ultralytics, rclpy
 print("numpy", numpy.__version__, "| torch", torch.__version__, "| cuda", torch.cuda.is_available(),
       "| ultralytics", ultralytics.__version__)'
-ROBOT_CHECK='import numpy, cv2, pinocchio, pink, daqp, rclpy
+ROBOT_CHECK='import numpy, cv2, pinocchio, pink, daqp, rclpy, google.genai
 print("numpy", numpy.__version__, "| pinocchio", pinocchio.__version__, "| pink", pink.__version__)'
 
 # Runs on the remote. Args: <workspace dir> <python check> <packages...>

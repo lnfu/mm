@@ -1,10 +1,3 @@
-"""Offline differential IK with pink.
-
-Targets are poses of `ee_frame` expressed in `base_link` at the moment of solving.
-The virtual base joints always start at 0, so the returned base values are the
-relative motion (dx, dy, dtheta) the base must make before the arm moves.
-"""
-
 from dataclasses import dataclass
 
 import numpy as np
@@ -12,25 +5,24 @@ import pink
 import pinocchio as pin
 from pink.tasks import FrameTask, PostureTask
 
+from .joints import ARM_JOINT_NAMES, BASE_THETA, BASE_X, BASE_Y
 from .model import ARM_JOINTS, BASE_JOINTS, MERGED_ARM, build_model
 
-# Names used outside this package.
-# The merged arm is `arm_joint`.
 PUBLIC_NAMES = {
     MERGED_ARM: "arm_joint",
-    BASE_JOINTS["x"]: "base_x",
-    BASE_JOINTS["y"]: "base_y",
-    BASE_JOINTS["theta"]: "base_theta",
+    BASE_JOINTS["x"]: BASE_X,
+    BASE_JOINTS["y"]: BASE_Y,
+    BASE_JOINTS["theta"]: BASE_THETA,
 }
-ARM_JOINT_NAMES = [PUBLIC_NAMES.get(n, n) for n in ARM_JOINTS]
+assert [PUBLIC_NAMES.get(n, n) for n in ARM_JOINTS] == ARM_JOINT_NAMES
 
 
 @dataclass
 class IKResult:
-    joints: dict  # public joint name -> position
+    joints: dict
     converged: bool
     position_error: float  # m
-    orientation_error: float  # rad
+    orientation_error: float  # rad, about the constrained axes
     iterations: int
 
 
@@ -89,11 +81,9 @@ class IKSolver:
 
     @property
     def joint_names(self):
-        """Public names of the free joints, in model order."""
         return list(self._name_to_public.values())
 
     def to_q(self, joints: dict) -> np.ndarray:
-        """Joint dict -> configuration. Base joints default to 0; arm joints are required."""
         q = pin.neutral(self.model)
         for name, public in self._name_to_public.items():
             if public in joints:
@@ -109,7 +99,6 @@ class IKSolver:
         }
 
     def _base_to_world(self, q_start: np.ndarray) -> pin.SE3:
-        """Pose of base_link in the IK world, with base joints at 0 (start of motion)."""
         q0 = q_start.copy()
         for name in BASE_JOINTS.values():
             if self.model.existJointName(name):
@@ -118,27 +107,22 @@ class IKSolver:
         return self.data.oMf[self.model.getFrameId(self.base_frame)].copy()
 
     def fk(self, joints: dict) -> pin.SE3:
-        """Pose of ee_frame in base_link at the *start* of motion (base joints act as offsets)."""
+        """ee pose in base_link at the start. Base joints are the base travel."""
         q = self.to_q(joints)
         base = self._base_to_world(q)
         pin.framesForwardKinematics(self.model, self.data, q)
         return base.actInv(self.data.oMf[self.model.getFrameId(self.ee_frame)])
 
     def base_motion(self, joints: dict) -> pin.SE3:
-        """Pose of base_link after the base moves by joints' base_x/y/theta, in the starting base_link."""
+        """base_link after the base travel, in base_link at the start."""
         q = self.to_q(joints)
         start = self._base_to_world(q)
         pin.framesForwardKinematics(self.model, self.data, q)
         return start.actInv(self.data.oMf[self.model.getFrameId(self.base_frame)])
 
     def solve(self, start: dict, target: pin.SE3, posture: dict = None) -> IKResult:
-        """Solve for `target` (ee pose in base_link at the start of motion).
-
-        `start` may carry base_x/base_y/base_theta (e.g. from a previous solve);
-        missing base joints default to 0.
-        `posture` biases the listed joints toward these values instead of `start`
-        (e.g. a comfortable arm extension); it only picks among redundant solutions.
-        """
+        """`target`: ee pose in base_link at the start. `posture` only selects among
+        equal solutions."""
         q = self.to_q(start)
         q = np.clip(q, self.model.lowerPositionLimit, self.model.upperPositionLimit)
 
@@ -181,20 +165,7 @@ class IKSolver:
         )
 
     def _errors(self, config):
-        """Position error (m) and orientation error (rad) about the constrained axes only."""
         err = self._frame_task.compute_error(config)
         return float(np.linalg.norm(err[:3])), float(
             np.linalg.norm(err[3:][self._rot_axes])
         )
-
-    def solve_path(self, start: dict, targets) -> list:
-        """Solve a sequence of targets, warm-starting each from the previous solution."""
-        results = []
-        joints = start
-        for target in targets:
-            result = self.solve(joints, target)
-            results.append(result)
-            if not result.converged:
-                break
-            joints = result.joints
-        return results
